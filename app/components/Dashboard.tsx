@@ -35,6 +35,9 @@ export default function Dashboard({
   const [isVerticalMode] = useState(window.innerHeight > window.innerWidth);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [activeView, setActiveView] = useState("dashboard");
+  
+  // Controls the expanding/collapsing of the Settings Sub-menu
+  const [isSettingsExpanded, setIsSettingsExpanded] = useState(false);
 
   // Keep the editable form synchronized whenever company props update from database
   const [editForm, setEditForm] = useState({ ...company });
@@ -59,7 +62,7 @@ export default function Dashboard({
 
       if (!existingRecord) {
         setIsSaving(false);
-        setSaveStatus({ type: "error", text: "Error: No company settings record found in database." });
+        setSaveStatus({ type: "error", text: "Error: No company settings record found." });
         return;
       }
 
@@ -78,15 +81,15 @@ export default function Dashboard({
 
       if (error) {
         console.error("Supabase update error:", error);
-        setSaveStatus({ type: "error", text: "Failed to update settings. Check RLS policies." });
+        setSaveStatus({ type: "error", text: "Failed to update settings." });
       } else {
-        setCompany(editForm); // Update parent master state instantly
+        setCompany(editForm);
         setSaveStatus({ type: "success", text: "Saved successfully! Closing..." });
         
-        // Auto-close the modal after 1.5 seconds
+        // Auto-close modal after 1.5 seconds
         setTimeout(() => {
           setActiveView("dashboard");
-          setSaveStatus({ type: "", text: "" }); // Reset message for next time
+          setSaveStatus({ type: "", text: "" });
         }, 1500);
       }
     } catch (err) {
@@ -96,18 +99,33 @@ export default function Dashboard({
     }
   };
 
-  const baseMenu = [
+  // Navigation handler to auto-close sidebar on mobile
+  const handleNavigation = (id: string) => {
+    setActiveView(id);
+    if (isVerticalMode) {
+      setIsSidebarOpen(false);
+    }
+  };
+
+  // Base Menu Options
+  const menuOptions = [
     { name: "Orders", id: "orders", icon: "M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" },
     { name: "Production", id: "production", icon: "M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" },
     { name: "Reports", id: "reports", icon: "M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" },
     { name: "Users", id: "users", icon: "M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" },
   ];
 
+  // Inject Settings Submenu if Admin
   if (userRole && userRole.trim().toUpperCase() === "ADMIN") {
-    baseMenu.push({
+    menuOptions.push({
       name: "Settings",
-      id: "settings_company",
+      id: "settings_parent",
       icon: "M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z",
+      // @ts-ignore - Dynamically adding children array for settings
+      children: [
+        { name: "Company Info", id: "settings_company", icon: "M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" },
+        { name: "App Settings", id: "settings_app", icon: "M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" }
+      ]
     });
   }
 
@@ -126,18 +144,48 @@ export default function Dashboard({
           <img src={company.logo_url || "/logo.png"} alt="Company Logo" className={`object-contain transition-all duration-300 ${isSidebarOpen ? 'h-10' : 'h-8'}`} />
         </div>
         
-        <nav className="flex-1 py-4 flex flex-col gap-2 px-3">
-          {baseMenu.map((item) => (
-            <button 
-              key={item.id} 
-              onClick={() => setActiveView(item.id)}
-              className={`flex items-center gap-4 p-3 rounded-xl transition-colors w-full overflow-hidden font-medium ${
-                activeView === item.id ? 'bg-blue-50 text-blue-700' : 'text-slate-600 hover:bg-slate-50 hover:text-blue-700'
-              }`}
-            >
-              <svg className="w-6 h-6 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d={item.icon}></path></svg>
-              {isSidebarOpen && <span className="whitespace-nowrap">{item.name}</span>}
-            </button>
+        <nav className="flex-1 py-4 flex flex-col gap-2 px-3 overflow-y-auto">
+          {menuOptions.map((item: any) => (
+            <div key={item.id}>
+              {/* Parent Button */}
+              <button 
+                onClick={() => {
+                  if (item.children) {
+                    setIsSettingsExpanded(!isSettingsExpanded);
+                  } else {
+                    handleNavigation(item.id);
+                  }
+                }}
+                className={`flex items-center gap-4 p-3 rounded-xl transition-colors w-full overflow-hidden font-medium ${
+                  activeView === item.id ? 'bg-blue-50 text-blue-700' : 'text-slate-600 hover:bg-slate-50 hover:text-blue-700'
+                }`}
+              >
+                <svg className="w-6 h-6 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d={item.icon}></path></svg>
+                {isSidebarOpen && <span className="whitespace-nowrap">{item.name}</span>}
+                {/* Arrow indicator for dropdowns */}
+                {item.children && isSidebarOpen && (
+                  <svg className={`ml-auto w-4 h-4 transition-transform duration-200 ${isSettingsExpanded ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
+                )}
+              </button>
+
+              {/* Sub-menu Buttons */}
+              {item.children && isSettingsExpanded && isSidebarOpen && (
+                <div className="ml-10 mt-1 flex flex-col gap-1 border-l-2 border-slate-100 pl-2 overflow-hidden animate-fade-in">
+                  {item.children.map((child: any) => (
+                    <button
+                      key={child.id}
+                      onClick={() => handleNavigation(child.id)}
+                      className={`flex items-center gap-3 p-2 rounded-lg transition-colors w-full overflow-hidden text-sm font-medium ${
+                        activeView === child.id ? 'bg-blue-50 text-blue-700' : 'text-slate-500 hover:bg-slate-50 hover:text-blue-700'
+                      }`}
+                    >
+                      <svg className="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d={child.icon}></path></svg>
+                      <span className="whitespace-nowrap">{child.name}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           ))}
         </nav>
       </aside>
@@ -185,12 +233,14 @@ export default function Dashboard({
 
         {/* DEFAULT DASHBOARD BACKGROUND CONTENT */}
         <div className="flex-1 flex justify-center items-center p-6">
-           <h2 className="text-2xl font-bold text-slate-400/70 animate-pulse">
-             {isVerticalMode && isSidebarOpen ? "Select" : "Select an option from the menu"}
+           <h2 className="text-2xl font-bold text-slate-400/70 animate-pulse text-center">
+             {activeView === "settings_app" 
+                ? "App Settings (Coming Soon)" 
+                : isVerticalMode && isSidebarOpen ? "Select" : "Select an option from the menu"}
            </h2>
         </div>
 
-        {/* RESPONSIVE MODAL OVERLAY FOR SETTINGS */}
+        {/* RESPONSIVE MODAL OVERLAY FOR COMPANY SETTINGS */}
         {activeView === "settings_company" && (
           <div 
             className="absolute inset-0 z-40 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm md:p-6 transition-all duration-300"
@@ -202,7 +252,7 @@ export default function Dashboard({
             >
               
               {/* MOBILE ONLY: Back Button Header */}
-              <div className="md:hidden flex items-center p-4 border-b border-slate-100 bg-slate-50 sticky top-0 z-10">
+              <div className="md:hidden flex items-center p-4 border-b border-slate-100 bg-slate-50 sticky top-0 z-10 shrink-0">
                 <button 
                   onClick={() => setActiveView("dashboard")}
                   className="flex items-center gap-2 text-slate-500 hover:text-slate-800 font-bold transition-colors"
@@ -213,8 +263,8 @@ export default function Dashboard({
                 <h2 className="ml-4 text-lg font-extrabold text-slate-800">Company Info</h2>
               </div>
 
-              {/* FORM CONTENT */}
-              <div className="p-6 md:p-8 flex-1">
+              {/* FORM CONTENT - Removed flex-1 so inputs stay compact and natural size */}
+              <div className="p-6 md:p-8">
                 {/* Desktop Heading */}
                 <div className="hidden md:block mb-6 border-b border-slate-100 pb-4">
                   <h2 className="text-2xl font-bold text-slate-900">Company Settings</h2>
@@ -229,56 +279,56 @@ export default function Dashboard({
                   </div>
                 )}
 
-                <form onSubmit={handleSaveCompany} className="space-y-4">
+                <form onSubmit={handleSaveCompany} className="space-y-5">
                   <div>
-                    <label className="block text-xs font-bold text-slate-500 mb-1 uppercase tracking-wider">Company Name</label>
+                    <label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wider">Company Name</label>
                     <input 
                       type="text" 
                       value={editForm.company_name} 
                       onChange={(e) => setEditForm({...editForm, company_name: e.target.value})}
-                      className="w-full px-4 py-3 bg-slate-50 text-slate-900 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium transition-all"
+                      className="w-full px-4 h-12 bg-slate-50 text-slate-900 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium transition-all"
                       required 
                     />
                   </div>
 
                   <div>
-                    <label className="block text-xs font-bold text-slate-500 mb-1 uppercase tracking-wider">Factory Address</label>
+                    <label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wider">Factory Address</label>
                     <input 
                       type="text" 
                       value={editForm.address} 
                       onChange={(e) => setEditForm({...editForm, address: e.target.value})}
-                      className="w-full px-4 py-3 bg-slate-50 text-slate-900 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium transition-all" 
+                      className="w-full px-4 h-12 bg-slate-50 text-slate-900 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium transition-all" 
                     />
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                     <div>
-                      <label className="block text-xs font-bold text-slate-500 mb-1 uppercase tracking-wider">Support Email</label>
+                      <label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wider">Support Email</label>
                       <input 
                         type="email" 
                         value={editForm.support_email} 
                         onChange={(e) => setEditForm({...editForm, support_email: e.target.value})}
-                        className="w-full px-4 py-3 bg-slate-50 text-slate-900 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium transition-all" 
+                        className="w-full px-4 h-12 bg-slate-50 text-slate-900 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium transition-all" 
                       />
                     </div>
                     <div>
-                      <label className="block text-xs font-bold text-slate-500 mb-1 uppercase tracking-wider">Support Phone</label>
+                      <label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wider">Support Phone</label>
                       <input 
                         type="text" 
                         value={editForm.support_phone} 
                         onChange={(e) => setEditForm({...editForm, support_phone: e.target.value})}
-                        className="w-full px-4 py-3 bg-slate-50 text-slate-900 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium transition-all" 
+                        className="w-full px-4 h-12 bg-slate-50 text-slate-900 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium transition-all" 
                       />
                     </div>
                   </div>
 
                   <div>
-                    <label className="block text-xs font-bold text-slate-500 mb-1 uppercase tracking-wider">Logo URL or Path</label>
+                    <label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wider">Logo URL or Path</label>
                     <input 
                       type="text" 
                       value={editForm.logo_url} 
                       onChange={(e) => setEditForm({...editForm, logo_url: e.target.value})}
-                      className="w-full px-4 py-3 bg-slate-50 text-slate-900 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium transition-all" 
+                      className="w-full px-4 h-12 bg-slate-50 text-slate-900 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium transition-all" 
                     />
                   </div>
 
@@ -286,14 +336,14 @@ export default function Dashboard({
                     <button 
                       type="submit" 
                       disabled={isSaving}
-                      className="w-full bg-blue-600 text-white font-bold py-4 md:py-3 rounded-xl hover:bg-blue-700 transition-all shadow-md shadow-blue-600/20 disabled:opacity-50 text-base md:text-sm"
+                      className="w-full bg-blue-600 text-white font-bold h-12 rounded-xl hover:bg-blue-700 transition-all shadow-md shadow-blue-600/20 disabled:opacity-50 text-base md:text-sm"
                     >
                       {isSaving ? "Saving..." : "Save Company Info"}
                     </button>
                     <button 
                       type="button" 
                       onClick={() => setActiveView("dashboard")}
-                      className="hidden md:block px-6 bg-slate-100 text-slate-700 font-bold py-3 rounded-xl hover:bg-slate-200 transition-all text-sm"
+                      className="hidden md:block px-6 h-12 bg-slate-100 text-slate-700 font-bold rounded-xl hover:bg-slate-200 transition-all text-sm"
                     >
                       Cancel
                     </button>
