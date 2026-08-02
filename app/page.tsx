@@ -65,49 +65,57 @@ export default function FactoryMockLogin() {
 
   // --- UI RENDERING ---
   
+  // Loading Screen (Step 0)
   if (step === 0) {
     return (
-      <div className="min-h-screen bg-gray-50 flex justify-center items-center font-sans">
-        <p className="text-gray-500 text-lg animate-pulse">Loading secure session...</p>
+      <div className="min-h-screen bg-slate-900 flex justify-center items-center font-sans">
+        <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
       </div>
     );
   }
 
-  // WELCOME SCREEN (Step 2)
+  // Welcome Dashboard (Step 2)
   if (step === 2) {
     return (
-      <div className="min-h-screen bg-gray-50 flex flex-col justify-center items-center p-4 font-sans">
-        <div className="w-full max-w-md bg-white rounded-xl shadow-lg p-8 text-center border-t-4 border-blue-600">
-          <div className="w-16 h-16 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center mx-auto mb-4 text-2xl font-bold">
+      <div className="min-h-screen flex flex-col justify-center items-center p-4 font-sans bg-slate-50">
+        <div className="w-full max-w-md bg-white rounded-2xl shadow-xl p-8 text-center border-t-4 border-blue-600">
+          <img src="/logo.png" alt="Company Logo" className="h-16 mx-auto mb-6 object-contain" />
+          <div className="w-20 h-20 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center mx-auto mb-4 text-3xl font-bold shadow-inner">
             {username.charAt(0).toUpperCase()}
           </div>
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">Hi, {username}!</h1>
-          <p className="text-gray-500 mb-8">Welcome back to the BESTO 91 Portal.</p>
+          <h1 className="text-3xl font-extrabold text-slate-900 mb-2">Hi, {username}!</h1>
+          <p className="text-slate-500 mb-8 font-medium">Production Management System</p>
           
           <button
             onClick={handleLogout}
-            className="w-full bg-gray-100 text-gray-700 font-semibold py-3 rounded-lg hover:bg-gray-200 transition duration-200"
+            className="w-full bg-slate-100 text-slate-700 font-bold py-4 rounded-xl hover:bg-slate-200 hover:shadow-md transition-all duration-200"
           >
-            Log Out
+            Secure Log Out
           </button>
         </div>
       </div>
     );
   }
 
-  // LOGIN SCREEN (Step 1)
+  // Professional Login Screen (Step 1)
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col justify-center items-center p-4 font-sans">
-      <div className="w-full max-w-md bg-white rounded-xl shadow-lg p-8">
+    /* The main wrapper containing the responsive background logic */
+    <div className="min-h-screen flex flex-col justify-center items-center p-4 font-sans bg-slate-900 bg-[url('/bg-mobile.jpg')] md:bg-[url('/bg-desktop.jpg')] bg-cover bg-center bg-no-repeat bg-blend-overlay">
+      
+      {/* Glassmorphism Card */}
+      <div className="w-full max-w-md bg-white/10 backdrop-blur-xl rounded-2xl shadow-2xl p-8 border border-white/20">
         
         <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">BESTO 91 Portal</h1>
-          <p className="text-gray-500">Fast Access (Testing Mode)</p>
+          <img src="/logo.png" alt="Company Logo" className="h-20 mx-auto mb-4 object-contain drop-shadow-md" />
+          <h1 className="text-2xl font-bold text-white tracking-wide">PMS PORTAL</h1>
+          <p className="text-blue-200 text-sm mt-1">Authorized Access Only</p>
         </div>
 
         {message.text && (
-          <div className={`mb-6 p-4 rounded-md text-center text-sm font-medium border ${
-            message.type === "error" ? "bg-red-50 text-red-700 border-red-200" : "bg-emerald-50 text-emerald-700 border-emerald-200"
+          <div className={`mb-6 p-4 rounded-lg text-center text-sm font-bold border ${
+            message.type === "error" 
+            ? "bg-red-500/20 text-red-200 border-red-500/50" 
+            : "bg-emerald-500/20 text-emerald-200 border-emerald-500/50"
           }`}>
             {message.text}
           </div>
@@ -115,15 +123,15 @@ export default function FactoryMockLogin() {
 
         <form onSubmit={handleLogin} className="space-y-6">
           <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-2">
-              Registered Email
+            <label className="block text-sm font-semibold text-slate-300 mb-2 uppercase tracking-wider">
+              Corporate Email
             </label>
             <input
               type="email"
-              placeholder="admin@mybesto91.com"
+              placeholder="admin@factory.com"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full text-lg px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+              className="w-full text-lg px-4 py-4 bg-slate-900/50 text-white border border-slate-600 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none placeholder-slate-500 transition-all"
               required
             />
           </div>
@@ -131,11 +139,15 @@ export default function FactoryMockLogin() {
           <button
             type="submit"
             disabled={isLoading}
-            className="w-full bg-blue-600 text-white text-lg font-bold py-4 rounded-lg hover:bg-blue-700 transition duration-200 disabled:opacity-50"
+            className="w-full bg-blue-600 text-white text-lg font-bold py-4 rounded-xl hover:bg-blue-500 hover:shadow-[0_0_20px_rgba(37,99,235,0.4)] transition-all duration-300 disabled:opacity-50"
           >
-            {isLoading ? "Checking Database..." : "Log In"}
+            {isLoading ? "Authenticating..." : "Access Dashboard"}
           </button>
         </form>
+
+        <div className="mt-8 text-center border-t border-white/10 pt-6">
+          <p className="text-xs text-slate-400">© 2026 Production Management System. All rights reserved.</p>
+        </div>
       </div>
     </div>
   );
