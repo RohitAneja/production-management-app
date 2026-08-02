@@ -119,7 +119,8 @@ export default function FactoryMockLogin() {
         </aside>
 
         {/* MAIN CONTENT AREA (Responsive Background) */}
-        <main className="flex-1 flex flex-col relative bg-[url('/bg-mobile.jpg')] md:bg-[url('/bg-desktop.jpg')] bg-cover bg-center bg-no-repeat bg-blend-overlay bg-black/60">
+        <main className="flex-1 flex flex-col relative bg-[url('/bg-mobile
+        ')] md:bg-[url('/bg-desktop.jpg')] bg-cover bg-center bg-no-repeat bg-blend-overlay bg-black/60">
           
           {/* Top Bar */}
           <header className="h-16 bg-slate-900/50 backdrop-blur-md border-b border-white/10 flex justify-between items-center px-4 md:px-8">
