@@ -17,22 +17,22 @@ export default function FactoryMockLogin() {
   const [username, setUsername] = useState("");
 
   // Dashboard Specific States
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false); // Default collapsed for horizontal/desktop
+  const [isVerticalMode, setIsVerticalMode] = useState(false); // Tracks if device is in vertical layout
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [currentTime, setCurrentTime] = useState<Date | null>(null);
 
   // Company Settings State
   const [company, setCompany] = useState({
-    company_name: "Connecting to server...",
-    address: "",
-    support_email: "",
-    support_phone: "",
+    company_name: "PMS Industries Pvt. Ltd.",
+    address: "123 Industrial Phase-IV, Ludhiana, Punjab",
+    support_email: "support@pms-industries.com",
+    support_phone: "+91 98765 43210",
     logo_url: "/logo.png"
   });
 
-  // 1. FETCH COMPANY SETTINGS & AUTO-LOGIN
+  // 1. FETCH COMPANY SETTINGS & AUTO-LOGIN + SCREEN MODE DETECTION
   useEffect(() => {
-    // A. Fetch Company Data from Supabase
     const fetchCompanyData = async () => {
       const { data, error } = await supabase
         .from("company_settings")
@@ -46,7 +46,12 @@ export default function FactoryMockLogin() {
     };
     fetchCompanyData();
 
-    // B. Check local storage for persistent login
+    // Check if device is vertical (e.g., mobile portrait) on load
+    if (window.innerHeight > window.innerWidth) {
+      setIsVerticalMode(true);
+      setIsSidebarOpen(true); // Open by default in vertical mode
+    }
+
     const savedUsername = localStorage.getItem("test_factory_username");
     if (savedUsername) {
       setUsername(savedUsername);
@@ -56,7 +61,7 @@ export default function FactoryMockLogin() {
     }
   }, []);
 
-  // 2. LIVE CLOCK: Update the time every second (Runs everywhere now)
+  // 2. LIVE CLOCK: Update the time every second
   useEffect(() => {
     setCurrentTime(new Date());
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
@@ -111,14 +116,21 @@ export default function FactoryMockLogin() {
     return (
       <div className="h-screen w-full flex overflow-hidden font-sans bg-slate-50 text-slate-900">
         
-        {/* FOLDABLE SIDEBAR (Light Theme) */}
-        <aside className={`${isSidebarOpen ? 'w-64' : 'w-20'} bg-white border-r border-slate-200 transition-all duration-300 flex flex-col z-20 shadow-[4px_0_24px_rgba(0,0,0,0.02)]`}>
-          {/* Sidebar Header */}
+        {/* FOLDABLE SIDEBAR WITH HOVER EXPAND */}
+        <aside 
+          onMouseEnter={() => setIsSidebarOpen(true)}
+          onMouseLeave={() => {
+            // Only collapse automatically on mouse leave if NOT in vertical mode
+            if (!isVerticalMode) {
+              setIsSidebarOpen(false);
+            }
+          }}
+          className={`${isSidebarOpen ? 'w-64' : 'w-20'} bg-white border-r border-slate-200 transition-all duration-300 flex flex-col z-20 shadow-[4px_0_24px_rgba(0,0,0,0.02)]`}
+        >
           <div className="h-16 flex items-center justify-center border-b border-slate-100 p-2">
             <img src={company.logo_url} alt="Company Logo" className={`object-contain transition-all duration-300 ${isSidebarOpen ? 'h-10' : 'h-8'}`} />
           </div>
           
-          {/* Menu Options */}
           <nav className="flex-1 py-4 flex flex-col gap-2 px-3">
             {[
               { name: "Orders", icon: "M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" },
@@ -138,7 +150,6 @@ export default function FactoryMockLogin() {
         {/* MAIN CONTENT AREA */}
         <main className="flex-1 flex flex-col relative bg-[url('/bg-mobile.jpg')] md:bg-[url('/bg-desktop.jpg')] bg-cover bg-center bg-no-repeat bg-blend-overlay bg-white/90">
           
-          {/* Top Bar */}
           <header className="h-16 bg-white/70 backdrop-blur-md border-b border-slate-200/50 flex justify-between items-center px-4 md:px-8 shadow-sm">
             <button 
               onClick={() => setIsSidebarOpen(!isSidebarOpen)}
@@ -147,7 +158,6 @@ export default function FactoryMockLogin() {
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
             </button>
 
-            {/* Profile Menu */}
             <div className="relative">
               <div 
                 className="flex items-center gap-3 cursor-pointer p-1 pr-3 rounded-full hover:bg-white/50 transition-colors border border-transparent hover:border-slate-200"
@@ -178,36 +188,49 @@ export default function FactoryMockLogin() {
             </div>
           </header>
 
+          {/* CENTER TEXT: "Select" only in vertical layout when expanded, otherwise default text */}
           <div className="flex-1 flex justify-center items-center p-6">
-            <h2 className="text-2xl font-bold text-slate-400/70 animate-pulse">Select an option from the menu</h2>
+            <h2 className="text-2xl font-bold text-slate-400/70 animate-pulse">
+              {isVerticalMode && isSidebarOpen ? "Select" : "Select an option from the menu"}
+            </h2>
           </div>
 
-          {/* Bottom Bar (Live Time) - Dashboard */}
-          {/* <footer className="h-12 bg-white/80 backdrop-blur-md border-t border-slate-200/50 flex justify-center items-center text-slate-600 font-mono text-sm tracking-widest shadow-sm">
-            {currentTime ? currentTime.toLocaleString(undefined, { 
-              weekday: 'short', 
-              year: 'numeric', 
-              month: 'short', 
-              day: 'numeric', 
-              hour: '2-digit', 
-              minute: '2-digit', 
-              second: '2-digit' 
-            }) : 'Initializing temporal sensors...'}
-          </footer> */}
+          {/* Bottom Footer on Dashboard */}
+          <div className="w-full bg-white/95 backdrop-blur-md border-t border-slate-200/50 shadow-sm z-10">
+            <div className="py-2 px-4 text-center space-y-0.5 border-b border-slate-100">
+              <p className="text-xs font-bold text-slate-700">{company.company_name}</p>
+              {company.address && <p className="text-xs text-slate-500">{company.address}</p>}
+              {company.support_email && (
+                <p className="text-xs text-slate-500">
+                  Support: {company.support_email} {company.support_phone && `| ${company.support_phone}`}
+                </p>
+              )}
+            </div>
+
+            <footer className="h-9 flex justify-center items-center text-slate-600 font-mono text-xs tracking-widest">
+              {currentTime ? currentTime.toLocaleString(undefined, { 
+                weekday: 'short', 
+                year: 'numeric', 
+                month: 'short', 
+                day: 'numeric', 
+                hour: '2-digit', 
+                minute: '2-digit', 
+                second: '2-digit' 
+              }) : 'Initializing temporal sensors...'}
+            </footer>
+          </div>
 
         </main>
       </div>
     );
   }
 
-  // Professional Login Screen with Dynamic Company Info (Step 1)
+  // Professional Login Screen (Step 1)
   return (
-    <div className="min-h-screen relative flex flex-col justify-center items-center p-4 font-sans bg-slate-100 bg-[url('/bg-mobile.jpg')] md:bg-[url('/bg-desktop.jpg')] bg-cover bg-center bg-no-repeat bg-blend-overlay bg-white/80 pb-24">
-      
+    <div className="min-h-screen w-full flex items-center justify-center bg-slate-100 bg-[url('/bg-mobile.jpg')] md:bg-[url('/bg-desktop.jpg')] bg-cover bg-center bg-no-repeat bg-blend-overlay bg-white/80 p-4">
       <div className="w-full max-w-md bg-white/95 backdrop-blur-xl rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.08)] p-10 border border-white">
         
-        {/* Dynamic Company Header & Logo */}
-        <div className="text-center mb-8 border-b border-slate-100 pb-6">
+        <div className="text-center mb-8">
           <div className="mx-auto mb-4 flex justify-center">
             <img src={company.logo_url} alt="Company Logo" className="h-20 object-contain drop-shadow-sm" />
           </div>
@@ -248,35 +271,11 @@ export default function FactoryMockLogin() {
             {isLoading ? "Authenticating..." : "Access Dashboard"}
           </button>
         </form>
-      </div>
 
-      {/* Bottom Bar: Company Info stacked directly above the Live Clock */}
-      <div className="absolute bottom-0 w-full bg-white/95 backdrop-blur-md border-t border-slate-200/50 shadow-sm">
-        {/* Company Information Section */}
-        <div className="py-3 px-4 text-center space-y-1 border-b border-slate-100">
-          {company.address && <p className="text-xs text-slate-500">{company.address}</p>}
-          {company.support_email && (
-            <p className="text-xs text-slate-500">
-              Support: {company.support_email} {company.support_phone && `| ${company.support_phone}`}
-            </p>
-          )}
+        <div className="mt-8 text-center pt-6 border-t border-slate-100">
           <p className="text-xs text-slate-400 font-medium">© {new Date().getFullYear()} {company.company_name}. All rights reserved.</p>
         </div>
-
-        {/* Live Time Footer
-        <footer className="h-10 flex justify-center items-center text-slate-600 font-mono text-xs tracking-widest">
-          {currentTime ? currentTime.toLocaleString(undefined, { 
-            weekday: 'short', 
-            year: 'numeric', 
-            month: 'short', 
-            day: 'numeric', 
-            hour: '2-digit', 
-            minute: '2-digit', 
-            second: '2-digit' 
-          }) : 'Initializing temporal sensors...'}
-        </footer> */}
       </div>
-      
     </div>
   );
 }
