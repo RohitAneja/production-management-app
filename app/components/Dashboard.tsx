@@ -31,8 +31,9 @@ export default function Dashboard({
   handleLogout,
   currentTime,
 }: DashboardProps) {
+  // Sidebar defaults to completely closed (hidden)
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [isVerticalMode] = useState(window.innerHeight > window.innerWidth);
+  const [isVerticalMode] = useState(typeof window !== "undefined" && window.innerHeight > window.innerWidth);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [activeView, setActiveView] = useState("dashboard");
   
@@ -78,7 +79,6 @@ export default function Dashboard({
   // NATIVE APP HISTORY & BACK BUTTON LOGIC
   // ==========================================
 
-  // 1. Initialize the base history state when the dashboard loads
   useEffect(() => {
     if (typeof window !== "undefined") {
       if (!window.history.state || !window.history.state.view) {
@@ -87,15 +87,13 @@ export default function Dashboard({
     }
   }, []);
 
-  // 2. Intercept hardware back button presses
   useEffect(() => {
     const handlePopState = (e: PopStateEvent) => {
       if (isAddUserOpen) {
-        setIsAddUserOpen(false); // Close top-most modal
+        setIsAddUserOpen(false); 
       } else if (isEditUserOpen) {
         setIsEditUserOpen(false);
       } else {
-        // If no modals are open, safely navigate back through the view history
         if (e.state && e.state.view) {
           setActiveView(e.state.view);
         } else {
@@ -107,15 +105,13 @@ export default function Dashboard({
     return () => window.removeEventListener("popstate", handlePopState);
   }, [isAddUserOpen, isEditUserOpen]);
 
-  // 3. Navigation wrappers that push tracking states
+  // ALWAYS collapse sidebar upon clicking a menu link
   const handleNavigation = (id: string) => {
     if (id !== activeView) {
       window.history.pushState({ view: id }, "");
       setActiveView(id);
     }
-    if (isVerticalMode) {
-      setIsSidebarOpen(false);
-    }
+    setIsSidebarOpen(false); // Instantly collapse the entire menu
   };
 
   const goHome = () => {
@@ -123,6 +119,7 @@ export default function Dashboard({
       window.history.pushState({ view: "dashboard" }, "");
       setActiveView("dashboard");
     }
+    setIsSidebarOpen(false);
   };
 
   const openAddUserModal = () => {
@@ -144,7 +141,6 @@ export default function Dashboard({
     setIsEditUserOpen(true);
   };
 
-  // 4. Safe UI close wrappers that cleanly pop the tracking states
   const closeAddUserModal = () => {
     if (isAddUserOpen) {
       setIsAddUserOpen(false);
@@ -359,62 +355,66 @@ export default function Dashboard({
   return (
     <div className="h-screen w-full flex overflow-hidden font-sans bg-slate-50 text-slate-900">
       
-      {/* FOLDABLE SIDEBAR */}
+      {/* FULLY COLLAPSIBLE SIDEBAR: 
+        Switches between w-64 (open) and w-0 (closed).
+        The inner container stays w-64 so the content doesn't squeeze during animation!
+      */}
       <aside 
-        onMouseEnter={() => setIsSidebarOpen(true)}
-        onMouseLeave={() => { if (!isVerticalMode) setIsSidebarOpen(false); }}
-        className={`${isSidebarOpen ? 'w-64' : 'w-20'} bg-white border-r border-slate-200 transition-all duration-300 flex flex-col z-20 shadow-[4px_0_24px_rgba(0,0,0,0.02)]`}
+        className={`${isSidebarOpen ? 'w-64 border-r border-slate-200' : 'w-0 border-r-0'} bg-white transition-all duration-300 flex flex-col z-40 shadow-[4px_0_24px_rgba(0,0,0,0.02)] shrink-0 overflow-hidden`}
       >
-        <div onClick={goHome} className="h-16 flex items-center justify-center border-b border-slate-100 p-2 cursor-pointer hover:bg-slate-50 transition-colors">
-          <img src={company.logo_url || "/logo.png"} alt="Company Logo" className={`object-contain transition-all duration-300 ${isSidebarOpen ? 'h-10' : 'h-8'}`} />
-        </div>
-        
-        <nav className="flex-1 py-4 flex flex-col gap-2 px-3 overflow-y-auto">
-          {menuOptions.map((item: any) => (
-            <div key={item.id}>
-              <button 
-                onClick={() => {
-                  if (item.children) {
-                    setIsSettingsExpanded(!isSettingsExpanded);
-                  } else {
-                    handleNavigation(item.id);
-                  }
-                }}
-                className={`flex items-center gap-4 p-3 rounded-xl transition-colors w-full overflow-hidden font-medium ${
-                  activeView === item.id || (item.children && item.children.some((c:any) => c.id === activeView)) ? 'bg-blue-50 text-blue-700' : 'text-slate-600 hover:bg-slate-50 hover:text-blue-700'
-                }`}
-              >
-                <svg className="w-6 h-6 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d={item.icon}></path></svg>
-                {isSidebarOpen && <span className="whitespace-nowrap">{item.name}</span>}
-                {item.children && isSidebarOpen && (
-                  <svg className={`ml-auto w-4 h-4 transition-transform duration-200 ${isSettingsExpanded ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
-                )}
-              </button>
+        <div className="w-64 flex flex-col h-full shrink-0">
+          <div onClick={goHome} className="h-16 flex items-center justify-center border-b border-slate-100 p-2 cursor-pointer hover:bg-slate-50 transition-colors shrink-0">
+            <img src={company.logo_url || "/logo.png"} alt="Company Logo" className="object-contain h-10 transition-all duration-300" />
+          </div>
+          
+          <nav className="flex-1 py-4 flex flex-col gap-2 px-3 overflow-y-auto">
+            {menuOptions.map((item: any) => (
+              <div key={item.id}>
+                <button 
+                  onClick={() => {
+                    if (item.children) {
+                      setIsSettingsExpanded(!isSettingsExpanded);
+                    } else {
+                      handleNavigation(item.id);
+                    }
+                  }}
+                  className={`flex items-center gap-4 p-3 rounded-xl transition-colors w-full overflow-hidden font-medium ${
+                    activeView === item.id || (item.children && item.children.some((c:any) => c.id === activeView)) ? 'bg-blue-50 text-blue-700' : 'text-slate-600 hover:bg-slate-50 hover:text-blue-700'
+                  }`}
+                >
+                  <svg className="w-6 h-6 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d={item.icon}></path></svg>
+                  <span className="whitespace-nowrap">{item.name}</span>
+                  {item.children && (
+                    <svg className={`ml-auto w-4 h-4 shrink-0 transition-transform duration-200 ${isSettingsExpanded ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
+                  )}
+                </button>
 
-              {item.children && isSettingsExpanded && isSidebarOpen && (
-                <div className="ml-10 mt-1 flex flex-col gap-1 border-l-2 border-slate-100 pl-2 overflow-hidden animate-fade-in">
-                  {item.children.map((child: any) => (
-                    <button
-                      key={child.id}
-                      onClick={() => handleNavigation(child.id)}
-                      className={`flex items-center gap-3 p-2 rounded-lg transition-colors w-full overflow-hidden text-sm font-medium ${
-                        activeView === child.id ? 'bg-blue-50 text-blue-700' : 'text-slate-500 hover:bg-slate-50 hover:text-blue-700'
-                      }`}
-                    >
-                      <svg className="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d={child.icon}></path></svg>
-                      <span className="whitespace-nowrap">{child.name}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          ))}
-        </nav>
+                {item.children && isSettingsExpanded && (
+                  <div className="ml-10 mt-1 flex flex-col gap-1 border-l-2 border-slate-100 pl-2 overflow-hidden animate-fade-in">
+                    {item.children.map((child: any) => (
+                      <button
+                        key={child.id}
+                        onClick={() => handleNavigation(child.id)}
+                        className={`flex items-center gap-3 p-2 rounded-lg transition-colors w-full overflow-hidden text-sm font-medium ${
+                          activeView === child.id ? 'bg-blue-50 text-blue-700' : 'text-slate-500 hover:bg-slate-50 hover:text-blue-700'
+                        }`}
+                      >
+                        <svg className="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d={child.icon}></path></svg>
+                        <span className="whitespace-nowrap">{child.name}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </nav>
+        </div>
       </aside>
 
       {/* MAIN CONTENT AREA */}
       <main className="flex-1 flex flex-col relative bg-[url('/bg-mobile.jpg')] md:bg-[url('/bg-desktop.jpg')] bg-cover bg-center bg-no-repeat bg-blend-overlay bg-white/90 overflow-y-auto">
         
+        {/* HEADER containing the Hamburger Menu (three lines shortcut) */}
         <header className="h-16 bg-white/70 backdrop-blur-md border-b border-slate-200/50 flex justify-between items-center px-4 md:px-8 shadow-sm shrink-0 z-10">
           <button 
             onClick={() => setIsSidebarOpen(!isSidebarOpen)}
@@ -570,7 +570,7 @@ export default function Dashboard({
                <h2 className="text-2xl font-bold text-slate-400/70 animate-pulse text-center px-4">
                  {activeView === "settings_app" 
                     ? "App Settings (Coming Soon)" 
-                    : isVerticalMode && isSidebarOpen ? "Select" : "Select an option from the menu"}
+                    : "Select an option from the menu"}
                </h2>
              </div>
           )}
