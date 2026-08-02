@@ -37,7 +37,7 @@ export default function Dashboard({
   const [activeView, setActiveView] = useState("dashboard");
   const [expandedMenu, setExpandedMenu] = useState<string | null>(null);
 
-  // States
+  // Settings & Users States
   const [editForm, setEditForm] = useState({ ...company });
   const [saveStatus, setSaveStatus] = useState({ type: "", text: "" });
   const [isSaving, setIsSaving] = useState(false);
@@ -64,9 +64,6 @@ export default function Dashboard({
   const [scannedInvoices, setScannedInvoices] = useState<any[]>([]);
   const [uploadStatus, setUploadStatus] = useState({ type: "", text: "" });
 
-  // ==========================================
-  // NATIVE APP HISTORY & BACK BUTTON LOGIC
-  // ==========================================
   useEffect(() => {
     if (typeof window !== "undefined") {
       if (!window.history.state || !window.history.state.view) {
@@ -116,9 +113,6 @@ export default function Dashboard({
   const closeEditUserModal = () => { if (isEditUserOpen) { setIsEditUserOpen(false); window.history.back(); } };
   const closeCompanySettings = () => { if (activeView === "settings_company") { setActiveView("dashboard"); window.history.back(); } };
 
-  // ==========================================
-  // USER MANAGEMENT LOGIC
-  // ==========================================
   useEffect(() => { setEditForm({ ...company }); }, [company]);
 
   const fetchUsersAndRoles = async () => {
@@ -152,10 +146,7 @@ export default function Dashboard({
     e.preventDefault(); setIsAddingUser(true); setAddUserStatus({ type: "", text: "" });
     try {
       const { error } = await supabase.from("users").insert([{
-        username: newUserForm.username,
-        email: newUserForm.email.trim() === "" ? null : newUserForm.email.trim(),
-        mobile_number: newUserForm.mobile_number.trim() === "" ? null : newUserForm.mobile_number.trim(),
-        role_id: newUserForm.role_id, is_active: true, user_status: 'active'
+        username: newUserForm.username, email: newUserForm.email.trim() === "" ? null : newUserForm.email.trim(), mobile_number: newUserForm.mobile_number.trim() === "" ? null : newUserForm.mobile_number.trim(), role_id: newUserForm.role_id, is_active: true, user_status: 'active'
       }]);
       if (error) setAddUserStatus({ type: "error", text: error.message || "Failed to add user." });
       else {
@@ -170,9 +161,7 @@ export default function Dashboard({
     e.preventDefault(); setIsUpdatingUser(true); setEditUserStatus({ type: "", text: "" });
     try {
       const { error } = await supabase.from("users").update({
-        username: editUserForm.username, email: editUserForm.email.trim() === "" ? null : editUserForm.email.trim(),
-        mobile_number: editUserForm.mobile_number.trim() === "" ? null : editUserForm.mobile_number.trim(),
-        role_id: editUserForm.role_id, user_status: editUserForm.user_status, is_active: editUserForm.user_status === 'active'
+        username: editUserForm.username, email: editUserForm.email.trim() === "" ? null : editUserForm.email.trim(), mobile_number: editUserForm.mobile_number.trim() === "" ? null : editUserForm.mobile_number.trim(), role_id: editUserForm.role_id, user_status: editUserForm.user_status, is_active: editUserForm.user_status === 'active'
       }).eq("id", editUserForm.id);
       if (error) setEditUserStatus({ type: "error", text: error.message || "Failed to update user." });
       else {
@@ -207,7 +196,7 @@ export default function Dashboard({
     if (e.target.files) {
       setSelectedFiles(Array.from(e.target.files));
       setUploadStatus({ type: "", text: "" });
-      setScannedInvoices([]); // clear previous scans
+      setScannedInvoices([]);
     }
   };
 
@@ -220,7 +209,7 @@ export default function Dashboard({
     for (const file of selectedFiles) {
       const formData = new FormData();
       formData.append("file", file);
-      formData.append("company_name", company.company_name); // Check against company name
+      formData.append("company_name", company.company_name);
 
       try {
         const response = await fetch('/api/parse-invoice', { method: 'POST', body: formData });
@@ -231,7 +220,7 @@ export default function Dashboard({
         } else {
           setUploadStatus({ type: "error", text: `File: ${file.name} - ${data.error}` });
           setIsScanning(false);
-          return; // Stop on first error to prevent bad data
+          return;
         }
       } catch (err) {
         setUploadStatus({ type: "error", text: `Failed to process ${file.name}.` });
@@ -250,9 +239,7 @@ export default function Dashboard({
     setUploadStatus({ type: "", text: "Saving to database..." });
 
     try {
-      // Remove the UI-only source_file field before inserting
       const cleanData = scannedInvoices.map(({ source_file, ...rest }) => rest);
-      
       const { error } = await supabase.from('invoices').insert(cleanData);
       
       if (error) {
@@ -269,10 +256,6 @@ export default function Dashboard({
     setIsScanning(false);
   };
 
-
-  // ==========================================
-  // SIDEBAR MENU CONFIGURATION
-  // ==========================================
   const menuOptions = [
     { name: "Orders", id: "orders", icon: "M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" },
     { 
@@ -304,25 +287,20 @@ export default function Dashboard({
   return (
     <div className="h-screen w-full flex overflow-hidden font-sans bg-slate-50 text-slate-900">
       
-      {/* FULLY COLLAPSIBLE SIDEBAR */}
+      {/* SIDEBAR */}
       <aside className={`${isSidebarOpen ? 'w-64 border-r border-slate-200' : 'w-0 border-r-0'} bg-white transition-all duration-300 flex flex-col z-40 shadow-[4px_0_24px_rgba(0,0,0,0.02)] shrink-0 overflow-hidden`}>
         <div className="w-64 flex flex-col h-full shrink-0">
           <div onClick={goHome} className="h-16 flex items-center justify-center border-b border-slate-100 p-2 cursor-pointer hover:bg-slate-50 transition-colors shrink-0">
             <img src={company.logo_url || "/logo.png"} alt="Company Logo" className="object-contain h-10 transition-all duration-300" />
           </div>
-          
           <nav className="flex-1 py-4 flex flex-col gap-2 px-3 overflow-y-auto">
             {menuOptions.map((item: any) => (
               <div key={item.id}>
-                <button 
-                  onClick={() => { if (item.children) setExpandedMenu(expandedMenu === item.id ? null : item.id); else handleNavigation(item.id); }}
-                  className={`flex items-center gap-4 p-3 rounded-xl transition-colors w-full overflow-hidden font-medium ${activeView === item.id || (item.children && item.children.some((c:any) => c.id === activeView)) ? 'bg-blue-50 text-blue-700' : 'text-slate-600 hover:bg-slate-50 hover:text-blue-700'}`}
-                >
+                <button onClick={() => { if (item.children) setExpandedMenu(expandedMenu === item.id ? null : item.id); else handleNavigation(item.id); }} className={`flex items-center gap-4 p-3 rounded-xl transition-colors w-full overflow-hidden font-medium ${activeView === item.id || (item.children && item.children.some((c:any) => c.id === activeView)) ? 'bg-blue-50 text-blue-700' : 'text-slate-600 hover:bg-slate-50 hover:text-blue-700'}`}>
                   <svg className="w-6 h-6 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d={item.icon}></path></svg>
                   <span className="whitespace-nowrap">{item.name}</span>
                   {item.children && <svg className={`ml-auto w-4 h-4 shrink-0 transition-transform duration-200 ${expandedMenu === item.id ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>}
                 </button>
-
                 {item.children && expandedMenu === item.id && (
                   <div className="ml-10 mt-1 flex flex-col gap-1 border-l-2 border-slate-100 pl-2 overflow-hidden animate-fade-in">
                     {item.children.map((child: any) => (
@@ -341,22 +319,16 @@ export default function Dashboard({
 
       {/* MAIN CONTENT AREA */}
       <main className="flex-1 flex flex-col relative bg-[url('/bg-mobile.jpg')] md:bg-[url('/bg-desktop.jpg')] bg-cover bg-center bg-no-repeat bg-blend-overlay bg-white/90 overflow-y-auto">
-        
-        {/* HEADER */}
         <header className="h-16 bg-white/70 backdrop-blur-md border-b border-slate-200/50 flex justify-between items-center px-4 md:px-8 shadow-sm shrink-0 z-10">
           <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="p-2 text-slate-500 hover:text-slate-900 hover:bg-white/50 rounded-lg transition-colors">
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
           </button>
-
           <div className="relative">
             <div onClick={() => setIsProfileOpen(!isProfileOpen)} className="flex items-center gap-3 cursor-pointer p-1 pr-3 rounded-full hover:bg-white/50 transition-colors border border-transparent hover:border-slate-200">
-              <div className="w-9 h-9 bg-blue-100 text-blue-700 rounded-full flex items-center justify-center font-bold text-sm border border-blue-200">
-                {username.charAt(0).toUpperCase()}
-              </div>
+              <div className="w-9 h-9 bg-blue-100 text-blue-700 rounded-full flex items-center justify-center font-bold text-sm border border-blue-200">{username.charAt(0).toUpperCase()}</div>
               <span className="hidden md:block font-semibold text-slate-700">Hi, {username} ({userRole})</span>
               <svg className="w-4 h-4 text-slate-400 hidden md:block" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
             </div>
-
             {isProfileOpen && (
               <div className="absolute right-0 mt-2 w-48 bg-white border border-slate-100 rounded-xl shadow-lg overflow-hidden z-50">
                 <div className="px-4 py-3 border-b border-slate-100 bg-slate-50 md:hidden">
@@ -541,6 +513,7 @@ export default function Dashboard({
           )}
 
           {/* BACKGROUND PLACEHOLDER FOR OTHER VIEWS */}
+          {/* Note the explicit activeView !== "upload_invoices" check here */}
           {activeView !== "users" && activeView !== "settings_company" && activeView !== "upload_invoices" && (
              <div className="flex-1 flex justify-center items-center">
                <h2 className="text-2xl font-bold text-slate-400/70 animate-pulse text-center px-4">
