@@ -48,7 +48,7 @@ export default function Dashboard({
   const [usersList, setUsersList] = useState<any[]>([]);
   const [rolesList, setRolesList] = useState<any[]>([]);
   const [isLoadingUsers, setIsLoadingUsers] = useState(false);
-  const [searchQuery, setSearchQuery] = useState(""); // State for Search Bar
+  const [searchQuery, setSearchQuery] = useState("");
 
   // Add User Modal States
   const [isAddUserOpen, setIsAddUserOpen] = useState(false);
@@ -74,26 +74,112 @@ export default function Dashboard({
     user_status: "active"
   });
 
+  // ==========================================
+  // NATIVE APP HISTORY & BACK BUTTON LOGIC
+  // ==========================================
+
+  // 1. Initialize the base history state when the dashboard loads
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      if (!window.history.state || !window.history.state.view) {
+        window.history.replaceState({ view: "dashboard" }, "");
+      }
+    }
+  }, []);
+
+  // 2. Intercept hardware back button presses
+  useEffect(() => {
+    const handlePopState = (e: PopStateEvent) => {
+      if (isAddUserOpen) {
+        setIsAddUserOpen(false); // Close top-most modal
+      } else if (isEditUserOpen) {
+        setIsEditUserOpen(false);
+      } else {
+        // If no modals are open, safely navigate back through the view history
+        if (e.state && e.state.view) {
+          setActiveView(e.state.view);
+        } else {
+          setActiveView("dashboard");
+        }
+      }
+    };
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, [isAddUserOpen, isEditUserOpen]);
+
+  // 3. Navigation wrappers that push tracking states
+  const handleNavigation = (id: string) => {
+    if (id !== activeView) {
+      window.history.pushState({ view: id }, "");
+      setActiveView(id);
+    }
+    if (isVerticalMode) {
+      setIsSidebarOpen(false);
+    }
+  };
+
+  const goHome = () => {
+    if (activeView !== "dashboard") {
+      window.history.pushState({ view: "dashboard" }, "");
+      setActiveView("dashboard");
+    }
+  };
+
+  const openAddUserModal = () => {
+    window.history.pushState({ modal: 'add' }, "");
+    setIsAddUserOpen(true);
+  };
+
+  const openEditUserModal = (user: any) => {
+    setEditUserForm({
+      id: user.id,
+      username: user.username || "",
+      email: user.email || "",
+      mobile_number: user.mobile_number || "",
+      role_id: user.role_id || "",
+      user_status: user.user_status || "active"
+    });
+    setEditUserStatus({ type: "", text: "" });
+    window.history.pushState({ modal: 'edit' }, "");
+    setIsEditUserOpen(true);
+  };
+
+  // 4. Safe UI close wrappers that cleanly pop the tracking states
+  const closeAddUserModal = () => {
+    if (isAddUserOpen) {
+      setIsAddUserOpen(false);
+      window.history.back();
+    }
+  };
+
+  const closeEditUserModal = () => {
+    if (isEditUserOpen) {
+      setIsEditUserOpen(false);
+      window.history.back();
+    }
+  };
+
+  const closeCompanySettings = () => {
+    if (activeView === "settings_company") {
+      setActiveView("dashboard");
+      window.history.back();
+    }
+  };
+
+  // ==========================================
+  // DATA & FORM LOGIC
+  // ==========================================
+
   useEffect(() => {
     setEditForm({ ...company });
   }, [company]);
 
-  // Fetch Users & Roles
   const fetchUsersAndRoles = async () => {
     setIsLoadingUsers(true);
     try {
       const { data: userData, error: userError } = await supabase
         .from("users")
-        .select(`
-          id,
-          username,
-          email,
-          mobile_number,
-          is_active,
-          user_status,
-          role_id,
-          roles ( role_name )
-        `)
+        .select(`id, username, email, mobile_number, is_active, user_status, role_id, roles ( role_name )`)
         .order("created_at", { ascending: true });
 
       if (!userError && userData) {
@@ -123,11 +209,9 @@ export default function Dashboard({
     }
   }, [activeView]);
 
-  // Derived state to filter users based on the search query
   const filteredUsers = usersList.filter(user => {
     const searchLower = searchQuery.toLowerCase();
     const roleName = Array.isArray(user.roles) ? user.roles[0]?.role_name : user.roles?.role_name;
-    
     return (
       (user.username?.toLowerCase().includes(searchLower)) ||
       (user.mobile_number?.toLowerCase().includes(searchLower)) ||
@@ -135,7 +219,6 @@ export default function Dashboard({
     );
   });
 
-  // Handle Add New User
   const handleAddUser = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsAddingUser(true);
@@ -160,7 +243,7 @@ export default function Dashboard({
         fetchUsersAndRoles(); 
         
         setTimeout(() => {
-          setIsAddUserOpen(false);
+          closeAddUserModal();
           setNewUserForm({ username: "", email: "", mobile_number: "", role_id: rolesList[0]?.id || "" });
           setAddUserStatus({ type: "", text: "" });
         }, 1500);
@@ -171,7 +254,6 @@ export default function Dashboard({
     setIsAddingUser(false);
   };
 
-  // Handle Edit User
   const handleUpdateUser = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsUpdatingUser(true);
@@ -197,7 +279,7 @@ export default function Dashboard({
         fetchUsersAndRoles(); 
         
         setTimeout(() => {
-          setIsEditUserOpen(false);
+          closeEditUserModal();
           setEditUserStatus({ type: "", text: "" });
         }, 1500);
       }
@@ -207,7 +289,6 @@ export default function Dashboard({
     setIsUpdatingUser(false);
   };
 
-  // Handle Company Settings
   const handleSaveCompany = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSaving(true);
@@ -245,20 +326,13 @@ export default function Dashboard({
         setCompany(editForm);
         setSaveStatus({ type: "success", text: "Saved successfully! Closing..." });
         setTimeout(() => {
-          setActiveView("dashboard");
+          closeCompanySettings();
           setSaveStatus({ type: "", text: "" });
         }, 1500);
       }
     } catch (err) {
       setIsSaving(false);
       setSaveStatus({ type: "error", text: "An unexpected error occurred." });
-    }
-  };
-
-  const handleNavigation = (id: string) => {
-    setActiveView(id);
-    if (isVerticalMode) {
-      setIsSidebarOpen(false);
     }
   };
 
@@ -291,7 +365,7 @@ export default function Dashboard({
         onMouseLeave={() => { if (!isVerticalMode) setIsSidebarOpen(false); }}
         className={`${isSidebarOpen ? 'w-64' : 'w-20'} bg-white border-r border-slate-200 transition-all duration-300 flex flex-col z-20 shadow-[4px_0_24px_rgba(0,0,0,0.02)]`}
       >
-        <div className="h-16 flex items-center justify-center border-b border-slate-100 p-2">
+        <div onClick={goHome} className="h-16 flex items-center justify-center border-b border-slate-100 p-2 cursor-pointer hover:bg-slate-50 transition-colors">
           <img src={company.logo_url || "/logo.png"} alt="Company Logo" className={`object-contain transition-all duration-300 ${isSidebarOpen ? 'h-10' : 'h-8'}`} />
         </div>
         
@@ -380,18 +454,17 @@ export default function Dashboard({
         </header>
 
         {/* FULL SCREEN DYNAMIC VIEWS */}
-        <div className="flex-1 flex flex-col p-4 md:p-6 overflow-hidden">
+        <div className="flex-1 flex flex-col p-0 md:p-6 overflow-hidden">
           
           {/* USERS TABLE VIEW */}
           {activeView === "users" && (
-            <div className="flex-1 flex flex-col bg-white/95 backdrop-blur-xl rounded-2xl shadow-xl border border-white overflow-hidden">
+            <div className="flex-1 flex flex-col bg-white md:bg-white/95 md:backdrop-blur-xl rounded-none md:rounded-2xl shadow-none md:shadow-xl border-none md:border md:border-white overflow-hidden">
               <div className="p-5 md:p-6 border-b border-slate-100 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white/50">
                 <div>
                   <h2 className="text-xl md:text-2xl font-bold text-slate-900">User Management</h2>
                   <p className="text-sm text-slate-500">Manage factory staff, roles, and access.</p>
                 </div>
                 <div className="flex w-full md:w-auto items-center gap-3">
-                  {/* SEARCH BAR */}
                   <div className="relative w-full md:w-64">
                     <svg className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
                     <input 
@@ -399,14 +472,14 @@ export default function Dashboard({
                       placeholder="Search users..." 
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
-                      className="w-full pl-9 pr-4 py-2 bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium transition-all"
+                      className="w-full pl-9 pr-4 h-12 shrink-0 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium transition-all"
                     />
                   </div>
                   <button 
-                    onClick={() => setIsAddUserOpen(true)}
-                    className="flex shrink-0 bg-blue-600 text-white px-4 py-2.5 rounded-lg text-sm font-bold shadow-md hover:bg-blue-700 transition-colors items-center gap-2"
+                    onClick={openAddUserModal}
+                    className="flex shrink-0 bg-blue-600 text-white px-4 h-12 rounded-xl text-sm font-bold shadow-md hover:bg-blue-700 transition-colors items-center gap-2"
                   >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"></path></svg>
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"></path></svg>
                     <span className="hidden md:block">Add User</span>
                   </button>
                 </div>
@@ -437,7 +510,7 @@ export default function Dashboard({
                             <td className="p-4 pl-6 text-sm font-medium text-slate-500">{(index + 1).toString().padStart(2, '0')}</td>
                             <td className="p-4">
                               <div className="flex items-center gap-3">
-                                <div className="w-8 h-8 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center font-bold text-xs">
+                                <div className="w-8 h-8 shrink-0 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center font-bold text-xs">
                                   {user.username.charAt(0).toUpperCase()}
                                 </div>
                                 <span className="text-sm font-bold text-slate-900">{user.username}</span>
@@ -468,18 +541,7 @@ export default function Dashboard({
                             </td>
                             <td className="p-4 pr-6 text-center">
                               <button 
-                                onClick={() => {
-                                  setEditUserForm({
-                                    id: user.id,
-                                    username: user.username || "",
-                                    email: user.email || "",
-                                    mobile_number: user.mobile_number || "",
-                                    role_id: user.role_id || "",
-                                    user_status: user.user_status || "active"
-                                  });
-                                  setEditUserStatus({ type: "", text: "" });
-                                  setIsEditUserOpen(true);
-                                }}
+                                onClick={() => openEditUserModal(user)}
                                 className="text-slate-400 hover:text-blue-600 p-2 rounded-lg hover:bg-blue-50 transition-colors opacity-70 group-hover:opacity-100"
                               >
                                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>
@@ -505,7 +567,7 @@ export default function Dashboard({
           {/* BACKGROUND PLACEHOLDER FOR OTHER VIEWS */}
           {activeView !== "users" && activeView !== "settings_company" && (
              <div className="flex-1 flex justify-center items-center">
-               <h2 className="text-2xl font-bold text-slate-400/70 animate-pulse text-center">
+               <h2 className="text-2xl font-bold text-slate-400/70 animate-pulse text-center px-4">
                  {activeView === "settings_app" 
                     ? "App Settings (Coming Soon)" 
                     : isVerticalMode && isSidebarOpen ? "Select" : "Select an option from the menu"}
@@ -519,23 +581,34 @@ export default function Dashboard({
         {isAddUserOpen && (
           <div 
             className="absolute inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm md:p-6 transition-all duration-300"
-            onClick={() => setIsAddUserOpen(false)}
+            onClick={closeAddUserModal}
           >
             <div 
               className="bg-white md:bg-white/95 md:backdrop-blur-xl w-full h-full md:h-auto md:max-w-md md:rounded-2xl shadow-2xl flex flex-col overflow-y-auto"
               onClick={(e) => e.stopPropagation()} 
             >
-              <div className="flex items-center justify-between p-4 md:p-6 border-b border-slate-100 bg-slate-50 md:bg-transparent sticky top-0 z-10 shrink-0">
-                <h2 className="text-lg md:text-xl font-extrabold text-slate-800">Add New User</h2>
+              <div className="hidden md:flex items-center justify-between p-6 border-b border-slate-100 bg-transparent sticky top-0 z-10 shrink-0">
+                <h2 className="text-xl font-extrabold text-slate-800">Add New User</h2>
                 <button 
-                  onClick={() => setIsAddUserOpen(false)}
+                  onClick={closeAddUserModal}
                   className="p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-600 rounded-full transition-colors"
                 >
                   <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>
                 </button>
               </div>
 
-              <div className="p-6 md:p-6">
+              <div className="md:hidden flex items-center p-4 border-b border-slate-100 bg-slate-50 sticky top-0 z-10 shrink-0">
+                <button 
+                  onClick={closeAddUserModal}
+                  className="flex items-center gap-2 text-slate-500 hover:text-slate-800 font-bold transition-colors"
+                >
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7"></path></svg>
+                  Back
+                </button>
+                <h2 className="ml-4 text-lg font-extrabold text-slate-800">Add User</h2>
+              </div>
+
+              <div className="p-6 md:p-8">
                 {addUserStatus.text && (
                   <div className={`mb-6 p-4 rounded-xl text-sm font-semibold border ${
                     addUserStatus.type === "error" ? "bg-red-50 text-red-700 border-red-100" : "bg-emerald-50 text-emerald-700 border-emerald-100"
@@ -544,14 +617,14 @@ export default function Dashboard({
                   </div>
                 )}
 
-                <form onSubmit={handleAddUser} className="space-y-4">
+                <form onSubmit={handleAddUser} className="space-y-5">
                   <div>
                     <label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wider">Username</label>
                     <input 
                       type="text" 
                       value={newUserForm.username} 
                       onChange={(e) => setNewUserForm({...newUserForm, username: e.target.value})}
-                      className="w-full px-4 h-12 bg-slate-50 text-slate-900 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium transition-all"
+                      className="w-full px-4 h-12 shrink-0 bg-slate-50 text-slate-900 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium transition-all"
                       required 
                     />
                   </div>
@@ -562,7 +635,7 @@ export default function Dashboard({
                       type="email" 
                       value={newUserForm.email} 
                       onChange={(e) => setNewUserForm({...newUserForm, email: e.target.value})}
-                      className="w-full px-4 h-12 bg-slate-50 text-slate-900 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium transition-all" 
+                      className="w-full px-4 h-12 shrink-0 bg-slate-50 text-slate-900 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium transition-all" 
                     />
                   </div>
 
@@ -572,7 +645,7 @@ export default function Dashboard({
                       type="text" 
                       value={newUserForm.mobile_number} 
                       onChange={(e) => setNewUserForm({...newUserForm, mobile_number: e.target.value})}
-                      className="w-full px-4 h-12 bg-slate-50 text-slate-900 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium transition-all" 
+                      className="w-full px-4 h-12 shrink-0 bg-slate-50 text-slate-900 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium transition-all" 
                     />
                   </div>
 
@@ -581,7 +654,7 @@ export default function Dashboard({
                     <select 
                       value={newUserForm.role_id}
                       onChange={(e) => setNewUserForm({...newUserForm, role_id: e.target.value})}
-                      className="w-full px-4 h-12 bg-slate-50 text-slate-900 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium transition-all appearance-none cursor-pointer"
+                      className="w-full px-4 h-12 shrink-0 bg-slate-50 text-slate-900 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium transition-all appearance-none cursor-pointer"
                       required
                     >
                       <option value="" disabled>Select a role...</option>
@@ -595,7 +668,7 @@ export default function Dashboard({
                     <button 
                       type="submit" 
                       disabled={isAddingUser}
-                      className="w-full bg-blue-600 text-white font-bold h-12 rounded-xl hover:bg-blue-700 transition-all shadow-md shadow-blue-600/20 disabled:opacity-50 text-base md:text-sm"
+                      className="w-full bg-blue-600 text-white font-bold h-12 shrink-0 rounded-xl hover:bg-blue-700 transition-all shadow-md shadow-blue-600/20 disabled:opacity-50 text-base md:text-sm"
                     >
                       {isAddingUser ? "Adding User..." : "Add User"}
                     </button>
@@ -610,23 +683,34 @@ export default function Dashboard({
         {isEditUserOpen && (
           <div 
             className="absolute inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm md:p-6 transition-all duration-300"
-            onClick={() => setIsEditUserOpen(false)} 
+            onClick={closeEditUserModal} 
           >
             <div 
               className="bg-white md:bg-white/95 md:backdrop-blur-xl w-full h-full md:h-auto md:max-w-md md:rounded-2xl shadow-2xl flex flex-col overflow-y-auto"
               onClick={(e) => e.stopPropagation()} 
             >
-              <div className="flex items-center justify-between p-4 md:p-6 border-b border-slate-100 bg-slate-50 md:bg-transparent sticky top-0 z-10 shrink-0">
-                <h2 className="text-lg md:text-xl font-extrabold text-slate-800">Edit User Profile</h2>
+              <div className="hidden md:flex items-center justify-between p-6 border-b border-slate-100 bg-transparent sticky top-0 z-10 shrink-0">
+                <h2 className="text-xl font-extrabold text-slate-800">Edit User Profile</h2>
                 <button 
-                  onClick={() => setIsEditUserOpen(false)}
+                  onClick={closeEditUserModal}
                   className="p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-600 rounded-full transition-colors"
                 >
                   <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>
                 </button>
               </div>
 
-              <div className="p-6 md:p-6">
+              <div className="md:hidden flex items-center p-4 border-b border-slate-100 bg-slate-50 sticky top-0 z-10 shrink-0">
+                <button 
+                  onClick={closeEditUserModal}
+                  className="flex items-center gap-2 text-slate-500 hover:text-slate-800 font-bold transition-colors"
+                >
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7"></path></svg>
+                  Back
+                </button>
+                <h2 className="ml-4 text-lg font-extrabold text-slate-800">Edit User</h2>
+              </div>
+
+              <div className="p-6 md:p-8">
                 {editUserStatus.text && (
                   <div className={`mb-6 p-4 rounded-xl text-sm font-semibold border ${
                     editUserStatus.type === "error" ? "bg-red-50 text-red-700 border-red-100" : "bg-emerald-50 text-emerald-700 border-emerald-100"
@@ -635,14 +719,14 @@ export default function Dashboard({
                   </div>
                 )}
 
-                <form onSubmit={handleUpdateUser} className="space-y-4">
+                <form onSubmit={handleUpdateUser} className="space-y-5">
                   <div>
                     <label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wider">Username</label>
                     <input 
                       type="text" 
                       value={editUserForm.username} 
                       onChange={(e) => setEditUserForm({...editUserForm, username: e.target.value})}
-                      className="w-full px-4 h-12 bg-slate-50 text-slate-900 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium transition-all"
+                      className="w-full px-4 h-12 shrink-0 bg-slate-50 text-slate-900 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium transition-all"
                       required 
                     />
                   </div>
@@ -653,7 +737,7 @@ export default function Dashboard({
                       type="email" 
                       value={editUserForm.email} 
                       onChange={(e) => setEditUserForm({...editUserForm, email: e.target.value})}
-                      className="w-full px-4 h-12 bg-slate-50 text-slate-900 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium transition-all" 
+                      className="w-full px-4 h-12 shrink-0 bg-slate-50 text-slate-900 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium transition-all" 
                     />
                   </div>
 
@@ -663,7 +747,7 @@ export default function Dashboard({
                       type="text" 
                       value={editUserForm.mobile_number} 
                       onChange={(e) => setEditUserForm({...editUserForm, mobile_number: e.target.value})}
-                      className="w-full px-4 h-12 bg-slate-50 text-slate-900 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium transition-all" 
+                      className="w-full px-4 h-12 shrink-0 bg-slate-50 text-slate-900 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium transition-all" 
                     />
                   </div>
 
@@ -673,7 +757,7 @@ export default function Dashboard({
                       <select 
                         value={editUserForm.role_id}
                         onChange={(e) => setEditUserForm({...editUserForm, role_id: e.target.value})}
-                        className="w-full px-4 h-12 bg-slate-50 text-slate-900 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium transition-all appearance-none cursor-pointer"
+                        className="w-full px-4 h-12 shrink-0 bg-slate-50 text-slate-900 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium transition-all appearance-none cursor-pointer"
                         required
                       >
                         <option value="" disabled>Select role...</option>
@@ -687,7 +771,7 @@ export default function Dashboard({
                       <select 
                         value={editUserForm.user_status}
                         onChange={(e) => setEditUserForm({...editUserForm, user_status: e.target.value})}
-                        className="w-full px-4 h-12 bg-slate-50 text-slate-900 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium transition-all appearance-none cursor-pointer"
+                        className="w-full px-4 h-12 shrink-0 bg-slate-50 text-slate-900 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium transition-all appearance-none cursor-pointer"
                         required
                       >
                         <option value="active">Active</option>
@@ -701,7 +785,7 @@ export default function Dashboard({
                     <button 
                       type="submit" 
                       disabled={isUpdatingUser}
-                      className="w-full bg-blue-600 text-white font-bold h-12 rounded-xl hover:bg-blue-700 transition-all shadow-md shadow-blue-600/20 disabled:opacity-50 text-base md:text-sm"
+                      className="w-full bg-blue-600 text-white font-bold h-12 shrink-0 rounded-xl hover:bg-blue-700 transition-all shadow-md shadow-blue-600/20 disabled:opacity-50 text-base md:text-sm"
                     >
                       {isUpdatingUser ? "Saving Changes..." : "Save Changes"}
                     </button>
@@ -716,7 +800,7 @@ export default function Dashboard({
         {activeView === "settings_company" && (
           <div 
             className="absolute inset-0 z-40 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm md:p-6 transition-all duration-300"
-            onClick={() => setActiveView("dashboard")}
+            onClick={closeCompanySettings}
           >
             <div 
               className="bg-white md:bg-white/95 md:backdrop-blur-xl w-full h-full md:h-auto md:max-w-xl md:rounded-2xl shadow-2xl flex flex-col overflow-y-auto"
@@ -724,7 +808,7 @@ export default function Dashboard({
             >
               <div className="md:hidden flex items-center p-4 border-b border-slate-100 bg-slate-50 sticky top-0 z-10 shrink-0">
                 <button 
-                  onClick={() => setActiveView("dashboard")}
+                  onClick={closeCompanySettings}
                   className="flex items-center gap-2 text-slate-500 hover:text-slate-800 font-bold transition-colors"
                 >
                   <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7"></path></svg>
@@ -754,7 +838,7 @@ export default function Dashboard({
                       type="text" 
                       value={editForm.company_name} 
                       onChange={(e) => setEditForm({...editForm, company_name: e.target.value})}
-                      className="w-full px-4 h-12 bg-slate-50 text-slate-900 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium transition-all"
+                      className="w-full px-4 h-12 shrink-0 bg-slate-50 text-slate-900 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium transition-all"
                       required 
                     />
                   </div>
@@ -765,7 +849,7 @@ export default function Dashboard({
                       type="text" 
                       value={editForm.address} 
                       onChange={(e) => setEditForm({...editForm, address: e.target.value})}
-                      className="w-full px-4 h-12 bg-slate-50 text-slate-900 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium transition-all" 
+                      className="w-full px-4 h-12 shrink-0 bg-slate-50 text-slate-900 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium transition-all" 
                     />
                   </div>
 
@@ -776,7 +860,7 @@ export default function Dashboard({
                         type="email" 
                         value={editForm.support_email} 
                         onChange={(e) => setEditForm({...editForm, support_email: e.target.value})}
-                        className="w-full px-4 h-12 bg-slate-50 text-slate-900 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium transition-all" 
+                        className="w-full px-4 h-12 shrink-0 bg-slate-50 text-slate-900 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium transition-all" 
                       />
                     </div>
                     <div>
@@ -785,7 +869,7 @@ export default function Dashboard({
                         type="text" 
                         value={editForm.support_phone} 
                         onChange={(e) => setEditForm({...editForm, support_phone: e.target.value})}
-                        className="w-full px-4 h-12 bg-slate-50 text-slate-900 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium transition-all" 
+                        className="w-full px-4 h-12 shrink-0 bg-slate-50 text-slate-900 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium transition-all" 
                       />
                     </div>
                   </div>
@@ -796,7 +880,7 @@ export default function Dashboard({
                       type="text" 
                       value={editForm.logo_url} 
                       onChange={(e) => setEditForm({...editForm, logo_url: e.target.value})}
-                      className="w-full px-4 h-12 bg-slate-50 text-slate-900 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium transition-all" 
+                      className="w-full px-4 h-12 shrink-0 bg-slate-50 text-slate-900 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium transition-all" 
                     />
                   </div>
 
@@ -804,13 +888,13 @@ export default function Dashboard({
                     <button 
                       type="submit" 
                       disabled={isSaving}
-                      className="w-full bg-blue-600 text-white font-bold h-12 rounded-xl hover:bg-blue-700 transition-all shadow-md shadow-blue-600/20 disabled:opacity-50 text-base md:text-sm"
+                      className="w-full bg-blue-600 text-white font-bold h-12 shrink-0 rounded-xl hover:bg-blue-700 transition-all shadow-md shadow-blue-600/20 disabled:opacity-50 text-base md:text-sm"
                     >
                       {isSaving ? "Saving..." : "Save Company Info"}
                     </button>
                     <button 
                       type="button" 
-                      onClick={() => setActiveView("dashboard")}
+                      onClick={closeCompanySettings}
                       className="hidden md:block px-6 h-12 bg-slate-100 text-slate-700 font-bold rounded-xl hover:bg-slate-200 transition-all text-sm"
                     >
                       Cancel
