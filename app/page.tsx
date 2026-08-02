@@ -93,11 +93,12 @@ export default function FactoryMockLogin() {
         {/* FOLDABLE SIDEBAR */}
         <aside className={`${isSidebarOpen ? 'w-64' : 'w-20'} bg-slate-900 border-r border-slate-700 transition-all duration-300 flex flex-col z-20`}>
           {/* Sidebar Header */}
+          {/* Sidebar Header */}
           <div className="h-16 flex items-center justify-center border-b border-slate-700">
             {isSidebarOpen ? (
-              <img src="/logo-horizontal.png" alt="PMS Logo" className="h-8 object-contain" />
+              <img src="/logo.png" alt="PMS Logo" className="h-8 object-contain" />
             ) : (
-              <img src="/logo-vertical.png" alt="PMS Icon" className="h-8 object-contain" />
+              <img src="/logo.png" alt="PMS Icon" className="h-8 object-contain" />
             )}
           </div>
           
