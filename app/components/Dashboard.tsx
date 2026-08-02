@@ -36,18 +36,178 @@ export default function Dashboard({
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [activeView, setActiveView] = useState("dashboard");
   
-  // Controls the expanding/collapsing of the Settings Sub-menu
+  // Settings Expand State
   const [isSettingsExpanded, setIsSettingsExpanded] = useState(false);
 
-  // Keep the editable form synchronized whenever company props update from database
+  // Company Settings States
   const [editForm, setEditForm] = useState({ ...company });
   const [saveStatus, setSaveStatus] = useState({ type: "", text: "" });
   const [isSaving, setIsSaving] = useState(false);
+
+  // Users Table & Roles States
+  const [usersList, setUsersList] = useState<any[]>([]);
+  const [rolesList, setRolesList] = useState<any[]>([]);
+  const [isLoadingUsers, setIsLoadingUsers] = useState(false);
+  const [searchQuery, setSearchQuery] = useState(""); // State for Search Bar
+
+  // Add User Modal States
+  const [isAddUserOpen, setIsAddUserOpen] = useState(false);
+  const [isAddingUser, setIsAddingUser] = useState(false);
+  const [addUserStatus, setAddUserStatus] = useState({ type: "", text: "" });
+  const [newUserForm, setNewUserForm] = useState({
+    username: "",
+    email: "",
+    mobile_number: "",
+    role_id: ""
+  });
+
+  // Edit User Modal States
+  const [isEditUserOpen, setIsEditUserOpen] = useState(false);
+  const [isUpdatingUser, setIsUpdatingUser] = useState(false);
+  const [editUserStatus, setEditUserStatus] = useState({ type: "", text: "" });
+  const [editUserForm, setEditUserForm] = useState({
+    id: "",
+    username: "",
+    email: "",
+    mobile_number: "",
+    role_id: "",
+    user_status: "active"
+  });
 
   useEffect(() => {
     setEditForm({ ...company });
   }, [company]);
 
+  // Fetch Users & Roles
+  const fetchUsersAndRoles = async () => {
+    setIsLoadingUsers(true);
+    try {
+      const { data: userData, error: userError } = await supabase
+        .from("users")
+        .select(`
+          id,
+          username,
+          email,
+          mobile_number,
+          is_active,
+          user_status,
+          role_id,
+          roles ( role_name )
+        `)
+        .order("created_at", { ascending: true });
+
+      if (!userError && userData) {
+        setUsersList(userData);
+      }
+
+      const { data: rolesData, error: rolesError } = await supabase
+        .from("roles")
+        .select("id, role_name")
+        .order("role_name", { ascending: true });
+
+      if (!rolesError && rolesData) {
+        setRolesList(rolesData);
+        if (rolesData.length > 0 && !newUserForm.role_id) {
+          setNewUserForm(prev => ({ ...prev, role_id: rolesData[0].id }));
+        }
+      }
+    } catch (err) {
+      console.error("Unexpected error:", err);
+    }
+    setIsLoadingUsers(false);
+  };
+
+  useEffect(() => {
+    if (activeView === "users") {
+      fetchUsersAndRoles();
+    }
+  }, [activeView]);
+
+  // Derived state to filter users based on the search query
+  const filteredUsers = usersList.filter(user => {
+    const searchLower = searchQuery.toLowerCase();
+    const roleName = Array.isArray(user.roles) ? user.roles[0]?.role_name : user.roles?.role_name;
+    
+    return (
+      (user.username?.toLowerCase().includes(searchLower)) ||
+      (user.mobile_number?.toLowerCase().includes(searchLower)) ||
+      (roleName?.toLowerCase().includes(searchLower))
+    );
+  });
+
+  // Handle Add New User
+  const handleAddUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsAddingUser(true);
+    setAddUserStatus({ type: "", text: "" });
+
+    try {
+      const { error } = await supabase
+        .from("users")
+        .insert([{
+          username: newUserForm.username,
+          email: newUserForm.email.trim() === "" ? null : newUserForm.email.trim(),
+          mobile_number: newUserForm.mobile_number.trim() === "" ? null : newUserForm.mobile_number.trim(),
+          role_id: newUserForm.role_id,
+          is_active: true,
+          user_status: 'active'
+        }]);
+
+      if (error) {
+        setAddUserStatus({ type: "error", text: error.message || "Failed to add user." });
+      } else {
+        setAddUserStatus({ type: "success", text: "User added successfully!" });
+        fetchUsersAndRoles(); 
+        
+        setTimeout(() => {
+          setIsAddUserOpen(false);
+          setNewUserForm({ username: "", email: "", mobile_number: "", role_id: rolesList[0]?.id || "" });
+          setAddUserStatus({ type: "", text: "" });
+        }, 1500);
+      }
+    } catch (err) {
+      setAddUserStatus({ type: "error", text: "An unexpected error occurred." });
+    }
+    setIsAddingUser(false);
+  };
+
+  // Handle Edit User
+  const handleUpdateUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsUpdatingUser(true);
+    setEditUserStatus({ type: "", text: "" });
+
+    try {
+      const { error } = await supabase
+        .from("users")
+        .update({
+          username: editUserForm.username,
+          email: editUserForm.email.trim() === "" ? null : editUserForm.email.trim(),
+          mobile_number: editUserForm.mobile_number.trim() === "" ? null : editUserForm.mobile_number.trim(),
+          role_id: editUserForm.role_id,
+          user_status: editUserForm.user_status,
+          is_active: editUserForm.user_status === 'active'
+        })
+        .eq("id", editUserForm.id);
+
+      if (error) {
+        setEditUserStatus({ type: "error", text: error.message || "Failed to update user." });
+      } else {
+        setEditUserStatus({ type: "success", text: "User updated successfully!" });
+        fetchUsersAndRoles(); 
+        
+        setTimeout(() => {
+          setIsEditUserOpen(false);
+          setEditUserStatus({ type: "", text: "" });
+        }, 1500);
+      }
+    } catch (err) {
+      setEditUserStatus({ type: "error", text: "An unexpected error occurred." });
+    }
+    setIsUpdatingUser(false);
+  };
+
+  // Handle Company Settings
   const handleSaveCompany = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSaving(true);
@@ -80,26 +240,21 @@ export default function Dashboard({
       setIsSaving(false);
 
       if (error) {
-        console.error("Supabase update error:", error);
         setSaveStatus({ type: "error", text: "Failed to update settings." });
       } else {
         setCompany(editForm);
         setSaveStatus({ type: "success", text: "Saved successfully! Closing..." });
-        
-        // Auto-close modal after 1.5 seconds
         setTimeout(() => {
           setActiveView("dashboard");
           setSaveStatus({ type: "", text: "" });
         }, 1500);
       }
     } catch (err) {
-      console.error("Unexpected error saving company info:", err);
       setIsSaving(false);
       setSaveStatus({ type: "error", text: "An unexpected error occurred." });
     }
   };
 
-  // Navigation handler to auto-close sidebar on mobile
   const handleNavigation = (id: string) => {
     setActiveView(id);
     if (isVerticalMode) {
@@ -107,21 +262,19 @@ export default function Dashboard({
     }
   };
 
-  // Base Menu Options
   const menuOptions = [
     { name: "Orders", id: "orders", icon: "M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" },
     { name: "Production", id: "production", icon: "M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" },
-    { name: "Reports", id: "reports", icon: "M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" },
-    { name: "Users", id: "users", icon: "M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" },
+    { name: "Reports", id: "reports", icon: "M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" }
   ];
 
-  // Inject Settings Submenu if Admin
   if (userRole && userRole.trim().toUpperCase() === "ADMIN") {
+    menuOptions.push({ name: "Users", id: "users", icon: "M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" });
     menuOptions.push({
       name: "Settings",
       id: "settings_parent",
       icon: "M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z",
-      // @ts-ignore - Dynamically adding children array for settings
+      // @ts-ignore
       children: [
         { name: "Company Info", id: "settings_company", icon: "M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" },
         { name: "App Settings", id: "settings_app", icon: "M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" }
@@ -135,9 +288,7 @@ export default function Dashboard({
       {/* FOLDABLE SIDEBAR */}
       <aside 
         onMouseEnter={() => setIsSidebarOpen(true)}
-        onMouseLeave={() => {
-          if (!isVerticalMode) setIsSidebarOpen(false);
-        }}
+        onMouseLeave={() => { if (!isVerticalMode) setIsSidebarOpen(false); }}
         className={`${isSidebarOpen ? 'w-64' : 'w-20'} bg-white border-r border-slate-200 transition-all duration-300 flex flex-col z-20 shadow-[4px_0_24px_rgba(0,0,0,0.02)]`}
       >
         <div className="h-16 flex items-center justify-center border-b border-slate-100 p-2">
@@ -147,7 +298,6 @@ export default function Dashboard({
         <nav className="flex-1 py-4 flex flex-col gap-2 px-3 overflow-y-auto">
           {menuOptions.map((item: any) => (
             <div key={item.id}>
-              {/* Parent Button */}
               <button 
                 onClick={() => {
                   if (item.children) {
@@ -157,18 +307,16 @@ export default function Dashboard({
                   }
                 }}
                 className={`flex items-center gap-4 p-3 rounded-xl transition-colors w-full overflow-hidden font-medium ${
-                  activeView === item.id ? 'bg-blue-50 text-blue-700' : 'text-slate-600 hover:bg-slate-50 hover:text-blue-700'
+                  activeView === item.id || (item.children && item.children.some((c:any) => c.id === activeView)) ? 'bg-blue-50 text-blue-700' : 'text-slate-600 hover:bg-slate-50 hover:text-blue-700'
                 }`}
               >
                 <svg className="w-6 h-6 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d={item.icon}></path></svg>
                 {isSidebarOpen && <span className="whitespace-nowrap">{item.name}</span>}
-                {/* Arrow indicator for dropdowns */}
                 {item.children && isSidebarOpen && (
                   <svg className={`ml-auto w-4 h-4 transition-transform duration-200 ${isSettingsExpanded ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
                 )}
               </button>
 
-              {/* Sub-menu Buttons */}
               {item.children && isSettingsExpanded && isSidebarOpen && (
                 <div className="ml-10 mt-1 flex flex-col gap-1 border-l-2 border-slate-100 pl-2 overflow-hidden animate-fade-in">
                   {item.children.map((child: any) => (
@@ -231,27 +379,349 @@ export default function Dashboard({
           </div>
         </header>
 
-        {/* DEFAULT DASHBOARD BACKGROUND CONTENT */}
-        <div className="flex-1 flex justify-center items-center p-6">
-           <h2 className="text-2xl font-bold text-slate-400/70 animate-pulse text-center">
-             {activeView === "settings_app" 
-                ? "App Settings (Coming Soon)" 
-                : isVerticalMode && isSidebarOpen ? "Select" : "Select an option from the menu"}
-           </h2>
+        {/* FULL SCREEN DYNAMIC VIEWS */}
+        <div className="flex-1 flex flex-col p-4 md:p-6 overflow-hidden">
+          
+          {/* USERS TABLE VIEW */}
+          {activeView === "users" && (
+            <div className="flex-1 flex flex-col bg-white/95 backdrop-blur-xl rounded-2xl shadow-xl border border-white overflow-hidden">
+              <div className="p-5 md:p-6 border-b border-slate-100 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white/50">
+                <div>
+                  <h2 className="text-xl md:text-2xl font-bold text-slate-900">User Management</h2>
+                  <p className="text-sm text-slate-500">Manage factory staff, roles, and access.</p>
+                </div>
+                <div className="flex w-full md:w-auto items-center gap-3">
+                  {/* SEARCH BAR */}
+                  <div className="relative w-full md:w-64">
+                    <svg className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                    <input 
+                      type="text" 
+                      placeholder="Search users..." 
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="w-full pl-9 pr-4 py-2 bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium transition-all"
+                    />
+                  </div>
+                  <button 
+                    onClick={() => setIsAddUserOpen(true)}
+                    className="flex shrink-0 bg-blue-600 text-white px-4 py-2.5 rounded-lg text-sm font-bold shadow-md hover:bg-blue-700 transition-colors items-center gap-2"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"></path></svg>
+                    <span className="hidden md:block">Add User</span>
+                  </button>
+                </div>
+              </div>
+              
+              <div className="flex-1 overflow-x-auto overflow-y-auto">
+                {isLoadingUsers ? (
+                  <div className="flex justify-center items-center h-full">
+                    <div className="w-10 h-10 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin"></div>
+                  </div>
+                ) : (
+                  <table className="w-full text-left border-collapse min-w-[700px]">
+                    <thead className="bg-slate-50 sticky top-0 z-10 shadow-sm">
+                      <tr className="text-slate-500 text-xs uppercase tracking-wider font-bold">
+                        <th className="p-4 pl-6">S.No</th>
+                        <th className="p-4">Username</th>
+                        <th className="p-4">Role</th>
+                        <th className="p-4">Status</th>
+                        <th className="p-4">Mobile</th>
+                        <th className="p-4 text-center pr-6">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 bg-white">
+                      {filteredUsers.map((user, index) => {
+                        const roleName = Array.isArray(user.roles) ? user.roles[0]?.role_name : user.roles?.role_name;
+                        return (
+                          <tr key={user.id} className="hover:bg-blue-50/50 transition-colors group">
+                            <td className="p-4 pl-6 text-sm font-medium text-slate-500">{(index + 1).toString().padStart(2, '0')}</td>
+                            <td className="p-4">
+                              <div className="flex items-center gap-3">
+                                <div className="w-8 h-8 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center font-bold text-xs">
+                                  {user.username.charAt(0).toUpperCase()}
+                                </div>
+                                <span className="text-sm font-bold text-slate-900">{user.username}</span>
+                              </div>
+                            </td>
+                            <td className="p-4">
+                              <span className={`px-3 py-1 rounded-full text-xs font-bold border ${
+                                roleName?.toUpperCase() === 'ADMIN' 
+                                ? 'bg-purple-50 text-purple-700 border-purple-100' 
+                                : 'bg-blue-50 text-blue-700 border-blue-100'
+                              }`}>
+                                {roleName || "Operator"}
+                              </span>
+                            </td>
+                            <td className="p-4">
+                              <span className={`px-3 py-1 rounded-full text-xs font-bold border ${
+                                user.user_status === 'active' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 
+                                user.user_status === 'hold' ? 'bg-amber-50 text-amber-700 border-amber-100' : 
+                                'bg-red-50 text-red-700 border-red-100'
+                              }`}>
+                                {user.user_status ? user.user_status.toUpperCase() : "ACTIVE"}
+                              </span>
+                            </td>
+                            <td className="p-4">
+                              <span className="text-sm font-medium text-slate-600">
+                                {user.mobile_number || "—"}
+                              </span>
+                            </td>
+                            <td className="p-4 pr-6 text-center">
+                              <button 
+                                onClick={() => {
+                                  setEditUserForm({
+                                    id: user.id,
+                                    username: user.username || "",
+                                    email: user.email || "",
+                                    mobile_number: user.mobile_number || "",
+                                    role_id: user.role_id || "",
+                                    user_status: user.user_status || "active"
+                                  });
+                                  setEditUserStatus({ type: "", text: "" });
+                                  setIsEditUserOpen(true);
+                                }}
+                                className="text-slate-400 hover:text-blue-600 p-2 rounded-lg hover:bg-blue-50 transition-colors opacity-70 group-hover:opacity-100"
+                              >
+                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                      {filteredUsers.length === 0 && !isLoadingUsers && (
+                        <tr>
+                          <td colSpan={6} className="p-8 text-center text-slate-400 font-medium">
+                            {searchQuery ? `No users found matching "${searchQuery}"` : "No users found in database."}
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* BACKGROUND PLACEHOLDER FOR OTHER VIEWS */}
+          {activeView !== "users" && activeView !== "settings_company" && (
+             <div className="flex-1 flex justify-center items-center">
+               <h2 className="text-2xl font-bold text-slate-400/70 animate-pulse text-center">
+                 {activeView === "settings_app" 
+                    ? "App Settings (Coming Soon)" 
+                    : isVerticalMode && isSidebarOpen ? "Select" : "Select an option from the menu"}
+               </h2>
+             </div>
+          )}
+
         </div>
+
+        {/* RESPONSIVE MODAL OVERLAY FOR ADD USER */}
+        {isAddUserOpen && (
+          <div 
+            className="absolute inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm md:p-6 transition-all duration-300"
+            onClick={() => setIsAddUserOpen(false)}
+          >
+            <div 
+              className="bg-white md:bg-white/95 md:backdrop-blur-xl w-full h-full md:h-auto md:max-w-md md:rounded-2xl shadow-2xl flex flex-col overflow-y-auto"
+              onClick={(e) => e.stopPropagation()} 
+            >
+              <div className="flex items-center justify-between p-4 md:p-6 border-b border-slate-100 bg-slate-50 md:bg-transparent sticky top-0 z-10 shrink-0">
+                <h2 className="text-lg md:text-xl font-extrabold text-slate-800">Add New User</h2>
+                <button 
+                  onClick={() => setIsAddUserOpen(false)}
+                  className="p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-600 rounded-full transition-colors"
+                >
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+              </div>
+
+              <div className="p-6 md:p-6">
+                {addUserStatus.text && (
+                  <div className={`mb-6 p-4 rounded-xl text-sm font-semibold border ${
+                    addUserStatus.type === "error" ? "bg-red-50 text-red-700 border-red-100" : "bg-emerald-50 text-emerald-700 border-emerald-100"
+                  }`}>
+                    {addUserStatus.text}
+                  </div>
+                )}
+
+                <form onSubmit={handleAddUser} className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wider">Username</label>
+                    <input 
+                      type="text" 
+                      value={newUserForm.username} 
+                      onChange={(e) => setNewUserForm({...newUserForm, username: e.target.value})}
+                      className="w-full px-4 h-12 bg-slate-50 text-slate-900 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium transition-all"
+                      required 
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wider">Email (Optional)</label>
+                    <input 
+                      type="email" 
+                      value={newUserForm.email} 
+                      onChange={(e) => setNewUserForm({...newUserForm, email: e.target.value})}
+                      className="w-full px-4 h-12 bg-slate-50 text-slate-900 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium transition-all" 
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wider">Mobile Number (Optional)</label>
+                    <input 
+                      type="text" 
+                      value={newUserForm.mobile_number} 
+                      onChange={(e) => setNewUserForm({...newUserForm, mobile_number: e.target.value})}
+                      className="w-full px-4 h-12 bg-slate-50 text-slate-900 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium transition-all" 
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wider">Assign Role</label>
+                    <select 
+                      value={newUserForm.role_id}
+                      onChange={(e) => setNewUserForm({...newUserForm, role_id: e.target.value})}
+                      className="w-full px-4 h-12 bg-slate-50 text-slate-900 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium transition-all appearance-none cursor-pointer"
+                      required
+                    >
+                      <option value="" disabled>Select a role...</option>
+                      {rolesList.map((role) => (
+                        <option key={role.id} value={role.id}>{role.role_name}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="pt-4">
+                    <button 
+                      type="submit" 
+                      disabled={isAddingUser}
+                      className="w-full bg-blue-600 text-white font-bold h-12 rounded-xl hover:bg-blue-700 transition-all shadow-md shadow-blue-600/20 disabled:opacity-50 text-base md:text-sm"
+                    >
+                      {isAddingUser ? "Adding User..." : "Add User"}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* RESPONSIVE MODAL OVERLAY FOR EDIT USER */}
+        {isEditUserOpen && (
+          <div 
+            className="absolute inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm md:p-6 transition-all duration-300"
+            onClick={() => setIsEditUserOpen(false)} 
+          >
+            <div 
+              className="bg-white md:bg-white/95 md:backdrop-blur-xl w-full h-full md:h-auto md:max-w-md md:rounded-2xl shadow-2xl flex flex-col overflow-y-auto"
+              onClick={(e) => e.stopPropagation()} 
+            >
+              <div className="flex items-center justify-between p-4 md:p-6 border-b border-slate-100 bg-slate-50 md:bg-transparent sticky top-0 z-10 shrink-0">
+                <h2 className="text-lg md:text-xl font-extrabold text-slate-800">Edit User Profile</h2>
+                <button 
+                  onClick={() => setIsEditUserOpen(false)}
+                  className="p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-600 rounded-full transition-colors"
+                >
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+              </div>
+
+              <div className="p-6 md:p-6">
+                {editUserStatus.text && (
+                  <div className={`mb-6 p-4 rounded-xl text-sm font-semibold border ${
+                    editUserStatus.type === "error" ? "bg-red-50 text-red-700 border-red-100" : "bg-emerald-50 text-emerald-700 border-emerald-100"
+                  }`}>
+                    {editUserStatus.text}
+                  </div>
+                )}
+
+                <form onSubmit={handleUpdateUser} className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wider">Username</label>
+                    <input 
+                      type="text" 
+                      value={editUserForm.username} 
+                      onChange={(e) => setEditUserForm({...editUserForm, username: e.target.value})}
+                      className="w-full px-4 h-12 bg-slate-50 text-slate-900 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium transition-all"
+                      required 
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wider">Email (Optional)</label>
+                    <input 
+                      type="email" 
+                      value={editUserForm.email} 
+                      onChange={(e) => setEditUserForm({...editUserForm, email: e.target.value})}
+                      className="w-full px-4 h-12 bg-slate-50 text-slate-900 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium transition-all" 
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wider">Mobile Number (Optional)</label>
+                    <input 
+                      type="text" 
+                      value={editUserForm.mobile_number} 
+                      onChange={(e) => setEditUserForm({...editUserForm, mobile_number: e.target.value})}
+                      className="w-full px-4 h-12 bg-slate-50 text-slate-900 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium transition-all" 
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wider">Assign Role</label>
+                      <select 
+                        value={editUserForm.role_id}
+                        onChange={(e) => setEditUserForm({...editUserForm, role_id: e.target.value})}
+                        className="w-full px-4 h-12 bg-slate-50 text-slate-900 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium transition-all appearance-none cursor-pointer"
+                        required
+                      >
+                        <option value="" disabled>Select role...</option>
+                        {rolesList.map((role) => (
+                          <option key={role.id} value={role.id}>{role.role_name}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wider">Status</label>
+                      <select 
+                        value={editUserForm.user_status}
+                        onChange={(e) => setEditUserForm({...editUserForm, user_status: e.target.value})}
+                        className="w-full px-4 h-12 bg-slate-50 text-slate-900 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium transition-all appearance-none cursor-pointer"
+                        required
+                      >
+                        <option value="active">Active</option>
+                        <option value="hold">Hold</option>
+                        <option value="ban">Ban</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="pt-4">
+                    <button 
+                      type="submit" 
+                      disabled={isUpdatingUser}
+                      className="w-full bg-blue-600 text-white font-bold h-12 rounded-xl hover:bg-blue-700 transition-all shadow-md shadow-blue-600/20 disabled:opacity-50 text-base md:text-sm"
+                    >
+                      {isUpdatingUser ? "Saving Changes..." : "Save Changes"}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* RESPONSIVE MODAL OVERLAY FOR COMPANY SETTINGS */}
         {activeView === "settings_company" && (
           <div 
             className="absolute inset-0 z-40 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm md:p-6 transition-all duration-300"
-            onClick={() => setActiveView("dashboard")} // Clicking outside closes it
+            onClick={() => setActiveView("dashboard")}
           >
             <div 
               className="bg-white md:bg-white/95 md:backdrop-blur-xl w-full h-full md:h-auto md:max-w-xl md:rounded-2xl shadow-2xl flex flex-col overflow-y-auto"
-              onClick={(e) => e.stopPropagation()} // Clicking inside form prevents closing
+              onClick={(e) => e.stopPropagation()}
             >
-              
-              {/* MOBILE ONLY: Back Button Header */}
               <div className="md:hidden flex items-center p-4 border-b border-slate-100 bg-slate-50 sticky top-0 z-10 shrink-0">
                 <button 
                   onClick={() => setActiveView("dashboard")}
@@ -263,9 +733,7 @@ export default function Dashboard({
                 <h2 className="ml-4 text-lg font-extrabold text-slate-800">Company Info</h2>
               </div>
 
-              {/* FORM CONTENT - Removed flex-1 so inputs stay compact and natural size */}
               <div className="p-6 md:p-8">
-                {/* Desktop Heading */}
                 <div className="hidden md:block mb-6 border-b border-slate-100 pb-4">
                   <h2 className="text-2xl font-bold text-slate-900">Company Settings</h2>
                   <p className="text-sm text-slate-500">Update your organization profile details below.</p>
