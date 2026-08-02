@@ -13,10 +13,13 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "BESTO 91 Portal",
-  description: "Created by R.A",
+  title: "Factory Portal",
+  description: "Production Management App",
+  manifest: "/manifest.json",
+  icons: {
+    apple: "/icon-512.png",
+  },
 };
-
 export default function RootLayout({
   children,
 }: Readonly<{
