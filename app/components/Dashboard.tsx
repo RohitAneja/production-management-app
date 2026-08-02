@@ -37,8 +37,8 @@ export default function Dashboard({
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [activeView, setActiveView] = useState("dashboard");
   
-  // Settings Expand State
-  const [isSettingsExpanded, setIsSettingsExpanded] = useState(false);
+  // Menu Expand State (Updated to handle multiple dropdowns)
+  const [expandedMenu, setExpandedMenu] = useState<string | null>(null);
 
   // Company Settings States
   const [editForm, setEditForm] = useState({ ...company });
@@ -334,6 +334,16 @@ export default function Dashboard({
 
   const menuOptions = [
     { name: "Orders", id: "orders", icon: "M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" },
+    { 
+      name: "Invoices/Bills", 
+      id: "invoices_parent", 
+      icon: "M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z",
+      // @ts-ignore
+      children: [
+        { name: "Upload Invoices", id: "upload_invoices", icon: "M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" },
+        { name: "Upload Builty", id: "upload_builty", icon: "M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" }
+      ]
+    },
     { name: "Production", id: "production", icon: "M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" },
     { name: "Reports", id: "reports", icon: "M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" }
   ];
@@ -355,10 +365,7 @@ export default function Dashboard({
   return (
     <div className="h-screen w-full flex overflow-hidden font-sans bg-slate-50 text-slate-900">
       
-      {/* FULLY COLLAPSIBLE SIDEBAR: 
-        Switches between w-64 (open) and w-0 (closed).
-        The inner container stays w-64 so the content doesn't squeeze during animation!
-      */}
+      {/* FULLY COLLAPSIBLE SIDEBAR */}
       <aside 
         className={`${isSidebarOpen ? 'w-64 border-r border-slate-200' : 'w-0 border-r-0'} bg-white transition-all duration-300 flex flex-col z-40 shadow-[4px_0_24px_rgba(0,0,0,0.02)] shrink-0 overflow-hidden`}
       >
@@ -373,7 +380,8 @@ export default function Dashboard({
                 <button 
                   onClick={() => {
                     if (item.children) {
-                      setIsSettingsExpanded(!isSettingsExpanded);
+                      // Toggle the clicked menu, close if it's already the expanded one
+                      setExpandedMenu(expandedMenu === item.id ? null : item.id);
                     } else {
                       handleNavigation(item.id);
                     }
@@ -385,11 +393,11 @@ export default function Dashboard({
                   <svg className="w-6 h-6 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d={item.icon}></path></svg>
                   <span className="whitespace-nowrap">{item.name}</span>
                   {item.children && (
-                    <svg className={`ml-auto w-4 h-4 shrink-0 transition-transform duration-200 ${isSettingsExpanded ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
+                    <svg className={`ml-auto w-4 h-4 shrink-0 transition-transform duration-200 ${expandedMenu === item.id ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
                   )}
                 </button>
 
-                {item.children && isSettingsExpanded && (
+                {item.children && expandedMenu === item.id && (
                   <div className="ml-10 mt-1 flex flex-col gap-1 border-l-2 border-slate-100 pl-2 overflow-hidden animate-fade-in">
                     {item.children.map((child: any) => (
                       <button
@@ -414,7 +422,7 @@ export default function Dashboard({
       {/* MAIN CONTENT AREA */}
       <main className="flex-1 flex flex-col relative bg-[url('/bg-mobile.jpg')] md:bg-[url('/bg-desktop.jpg')] bg-cover bg-center bg-no-repeat bg-blend-overlay bg-white/90 overflow-y-auto">
         
-        {/* HEADER containing the Hamburger Menu (three lines shortcut) */}
+        {/* HEADER */}
         <header className="h-16 bg-white/70 backdrop-blur-md border-b border-slate-200/50 flex justify-between items-center px-4 md:px-8 shadow-sm shrink-0 z-10">
           <button 
             onClick={() => setIsSidebarOpen(!isSidebarOpen)}
@@ -458,7 +466,7 @@ export default function Dashboard({
           
           {/* USERS TABLE VIEW */}
           {activeView === "users" && (
-            <div className="flex-1 flex flex-col bg-white md:bg-white/95 md:backdrop-blur-xl rounded-none md:rounded-2xl shadow-none md:shadow-xl border-none md:border md:border-white overflow-hidden">
+            <div className="flex-1 flex flex-col bg-white md:bg-white/95 md:backdrop-blur-xl rounded-none md:rounded-2xl shadow-none md:shadow-xl border-none md:border md:border-white overflow-hidden animate-fade-in">
               <div className="p-5 md:p-6 border-b border-slate-100 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white/50">
                 <div>
                   <h2 className="text-xl md:text-2xl font-bold text-slate-900">User Management</h2>
@@ -570,7 +578,7 @@ export default function Dashboard({
                <h2 className="text-2xl font-bold text-slate-400/70 animate-pulse text-center px-4">
                  {activeView === "settings_app" 
                     ? "App Settings (Coming Soon)" 
-                    : "Select an option from the menu"}
+                    : activeView !== "dashboard" ? `${activeView.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')} (Coming Soon)` : "Select an option from the menu"}
                </h2>
              </div>
           )}
@@ -803,7 +811,7 @@ export default function Dashboard({
             onClick={closeCompanySettings}
           >
             <div 
-              className="bg-white md:bg-white/95 md:backdrop-blur-xl w-full h-full md:h-auto md:max-w-xl md:rounded-2xl shadow-2xl flex flex-col overflow-y-auto"
+              className="bg-white md:bg-white/95 md:backdrop-blur-xl w-full h-full md:h-auto md:max-w-xl md:rounded-2xl shadow-2xl flex flex-col overflow-y-auto animate-fade-in"
               onClick={(e) => e.stopPropagation()}
             >
               <div className="md:hidden flex items-center p-4 border-b border-slate-100 bg-slate-50 sticky top-0 z-10 shrink-0">
@@ -908,15 +916,19 @@ export default function Dashboard({
 
         {/* Footer */}
         <div className="w-full bg-white/95 backdrop-blur-md border-t border-slate-200/50 shadow-sm z-10 shrink-0">
-          <div className="py-2 px-4 text-center space-y-0.5 border-b border-slate-100">
-            <p className="text-xs font-bold text-slate-700">{company.company_name}</p>
-            {company.address && <p className="text-xs text-slate-500">{company.address}</p>}
-            {company.support_email && (
-              <p className="text-xs text-slate-500">
-                Support: {company.support_email} {company.support_phone && `| ${company.support_phone}`}
-              </p>
-            )}
-          </div>
+          
+          {/* ONLY show company text block if we are specifically on the empty "dashboard" view */}
+          {activeView === "dashboard" && (
+            <div className="py-2 px-4 text-center space-y-0.5 border-b border-slate-100 animate-fade-in">
+              <p className="text-xs font-bold text-slate-700">{company.company_name}</p>
+              {company.address && <p className="text-xs text-slate-500">{company.address}</p>}
+              {company.support_email && (
+                <p className="text-xs text-slate-500">
+                  Support: {company.support_email} {company.support_phone && `| ${company.support_phone}`}
+                </p>
+              )}
+            </div>
+          )}
 
           <footer className="h-9 flex justify-center items-center text-slate-600 font-mono text-xs tracking-widest">
             {currentTime ? currentTime.toLocaleString(undefined, { 
