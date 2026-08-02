@@ -32,7 +32,7 @@ export default function Dashboard({
   currentTime,
 }: DashboardProps) {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [isVerticalMode] = useState(typeof window !== "undefined" && window.innerHeight > window.innerWidth);
+  const [isVerticalMode, setIsVerticalMode] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [activeView, setActiveView] = useState("dashboard");
   const [expandedMenu, setExpandedMenu] = useState<string | null>(null);
@@ -66,6 +66,7 @@ export default function Dashboard({
 
   useEffect(() => {
     if (typeof window !== "undefined") {
+      setIsVerticalMode(window.innerHeight > window.innerWidth);
       if (!window.history.state || !window.history.state.view) {
         window.history.replaceState({ view: "dashboard" }, "");
       }
@@ -262,7 +263,6 @@ export default function Dashboard({
       name: "Invoices/Bills", 
       id: "invoices_parent", 
       icon: "M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z",
-      // @ts-ignore
       children: [
         { name: "Upload Invoices", id: "upload_invoices", icon: "M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" },
         { name: "Upload Builty", id: "upload_builty", icon: "M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" }
@@ -276,7 +276,6 @@ export default function Dashboard({
     menuOptions.push({ name: "Users", id: "users", icon: "M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" });
     menuOptions.push({
       name: "Settings", id: "settings_parent", icon: "M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z",
-      // @ts-ignore
       children: [
         { name: "Company Info", id: "settings_company", icon: "M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" },
         { name: "App Settings", id: "settings_app", icon: "M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" }
@@ -296,7 +295,16 @@ export default function Dashboard({
           <nav className="flex-1 py-4 flex flex-col gap-2 px-3 overflow-y-auto">
             {menuOptions.map((item: any) => (
               <div key={item.id}>
-                <button onClick={() => { if (item.children) setExpandedMenu(expandedMenu === item.id ? null : item.id); else handleNavigation(item.id); }} className={`flex items-center gap-4 p-3 rounded-xl transition-colors w-full overflow-hidden font-medium ${activeView === item.id || (item.children && item.children.some((c:any) => c.id === activeView)) ? 'bg-blue-50 text-blue-700' : 'text-slate-600 hover:bg-slate-50 hover:text-blue-700'}`}>
+                <button 
+                  onClick={() => { 
+                    if (item.children) {
+                      setExpandedMenu(expandedMenu === item.id ? null : item.id); 
+                    } else {
+                      handleNavigation(item.id); 
+                    }
+                  }} 
+                  className={`flex items-center gap-4 p-3 rounded-xl transition-colors w-full overflow-hidden font-medium ${activeView === item.id || (item.children && item.children.some((c:any) => c.id === activeView)) ? 'bg-blue-50 text-blue-700' : 'text-slate-600 hover:bg-slate-50 hover:text-blue-700'}`}
+                >
                   <svg className="w-6 h-6 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d={item.icon}></path></svg>
                   <span className="whitespace-nowrap">{item.name}</span>
                   {item.children && <svg className={`ml-auto w-4 h-4 shrink-0 transition-transform duration-200 ${expandedMenu === item.id ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>}
@@ -513,7 +521,6 @@ export default function Dashboard({
           )}
 
           {/* BACKGROUND PLACEHOLDER FOR OTHER VIEWS */}
-          {/* Note the explicit activeView !== "upload_invoices" check here */}
           {activeView !== "users" && activeView !== "settings_company" && activeView !== "upload_invoices" && (
              <div className="flex-1 flex justify-center items-center">
                <h2 className="text-2xl font-bold text-slate-400/70 animate-pulse text-center px-4">
@@ -607,7 +614,7 @@ export default function Dashboard({
           </div>
         )}
 
-        {/* Footer */}
+       {/* Footer */}
         <div className="w-full bg-white/95 backdrop-blur-md border-t border-slate-200/50 shadow-sm z-10 shrink-0">
           {activeView === "dashboard" && (
             <div className="py-2 px-4 text-center space-y-0.5 border-b border-slate-100 animate-fade-in">
@@ -616,11 +623,11 @@ export default function Dashboard({
               {company.support_email && <p className="text-xs text-slate-500">Support: {company.support_email} {company.support_phone && `| ${company.support_phone}`}</p>}
             </div>
           )}
-          <footer className="h-9 flex justify-center items-center text-slate-600 font-mono text-xs tracking-widest">
-            {currentTime ? currentTime.toLocaleString(undefined, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }) : 'Initializing clock...'}
+          <footer className="h-9 flex justify-between items-center px-6 text-slate-500 font-mono text-[11px] tracking-wider">
+            <span>v1.0.4 - Build: {process.env.NODE_ENV === 'production' ? new Date().toISOString().slice(0, 16).replace('T', ' ') : 'Local-Dev'}</span>
+            <span>{currentTime ? currentTime.toLocaleString(undefined, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }) : 'Initializing clock...'}</span>
           </footer>
         </div>
-
       </main>
     </div>
   );
