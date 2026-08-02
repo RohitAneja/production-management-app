@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { createClient } from "@supabase/supabase-js";
 
 const supabase = createClient(
@@ -36,34 +36,63 @@ export default function Dashboard({
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [activeView, setActiveView] = useState("dashboard");
 
-  // Editable Form States
+  // Keep the editable form synchronized whenever company props update from database
   const [editForm, setEditForm] = useState({ ...company });
   const [saveStatus, setSaveStatus] = useState({ type: "", text: "" });
   const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    setEditForm({ ...company });
+  }, [company]);
 
   const handleSaveCompany = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSaving(true);
     setSaveStatus({ type: "", text: "" });
 
-    const { error } = await supabase
-      .from("company_settings")
-      .update({
-        company_name: editForm.company_name,
-        address: editForm.address,
-        support_email: editForm.support_email,
-        support_phone: editForm.support_phone,
-        logo_url: editForm.logo_url,
-      })
-      .neq("id", "00000000-0000-0000-0000-000000000000");
+    try {
+      const { data: existingRecord } = await supabase
+        .from("company_settings")
+        .select("id")
+        .limit(1)
+        .single();
 
-    setIsSaving(false);
+      if (!existingRecord) {
+        setIsSaving(false);
+        setSaveStatus({ type: "error", text: "Error: No company settings record found in database." });
+        return;
+      }
 
-    if (error) {
-      setSaveStatus({ type: "error", text: "Failed to update settings. Check permissions." });
-    } else {
-      setCompany(editForm);
-      setSaveStatus({ type: "success", text: "Company information updated successfully!" });
+      const { error } = await supabase
+        .from("company_settings")
+        .update({
+          company_name: editForm.company_name,
+          address: editForm.address,
+          support_email: editForm.support_email,
+          support_phone: editForm.support_phone,
+          logo_url: editForm.logo_url,
+        })
+        .eq("id", existingRecord.id);
+
+      setIsSaving(false);
+
+      if (error) {
+        console.error("Supabase update error:", error);
+        setSaveStatus({ type: "error", text: "Failed to update settings. Check RLS policies." });
+      } else {
+        setCompany(editForm); // Update parent master state instantly
+        setSaveStatus({ type: "success", text: "Saved successfully! Closing..." });
+        
+        // Auto-close the modal after 1.5 seconds
+        setTimeout(() => {
+          setActiveView("dashboard");
+          setSaveStatus({ type: "", text: "" }); // Reset message for next time
+        }, 1500);
+      }
+    } catch (err) {
+      console.error("Unexpected error saving company info:", err);
+      setIsSaving(false);
+      setSaveStatus({ type: "error", text: "An unexpected error occurred." });
     }
   };
 
@@ -74,7 +103,6 @@ export default function Dashboard({
     { name: "Users", id: "users", icon: "M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" },
   ];
 
-  // Show Settings only if role is ADMIN
   if (userRole && userRole.trim().toUpperCase() === "ADMIN") {
     baseMenu.push({
       name: "Settings",
@@ -95,7 +123,7 @@ export default function Dashboard({
         className={`${isSidebarOpen ? 'w-64' : 'w-20'} bg-white border-r border-slate-200 transition-all duration-300 flex flex-col z-20 shadow-[4px_0_24px_rgba(0,0,0,0.02)]`}
       >
         <div className="h-16 flex items-center justify-center border-b border-slate-100 p-2">
-          <img src={company.logo_url} alt="Company Logo" className={`object-contain transition-all duration-300 ${isSidebarOpen ? 'h-10' : 'h-8'}`} />
+          <img src={company.logo_url || "/logo.png"} alt="Company Logo" className={`object-contain transition-all duration-300 ${isSidebarOpen ? 'h-10' : 'h-8'}`} />
         </div>
         
         <nav className="flex-1 py-4 flex flex-col gap-2 px-3">
@@ -117,7 +145,7 @@ export default function Dashboard({
       {/* MAIN CONTENT AREA */}
       <main className="flex-1 flex flex-col relative bg-[url('/bg-mobile.jpg')] md:bg-[url('/bg-desktop.jpg')] bg-cover bg-center bg-no-repeat bg-blend-overlay bg-white/90 overflow-y-auto">
         
-        <header className="h-16 bg-white/70 backdrop-blur-md border-b border-slate-200/50 flex justify-between items-center px-4 md:px-8 shadow-sm shrink-0">
+        <header className="h-16 bg-white/70 backdrop-blur-md border-b border-slate-200/50 flex justify-between items-center px-4 md:px-8 shadow-sm shrink-0 z-10">
           <button 
             onClick={() => setIsSidebarOpen(!isSidebarOpen)}
             className="p-2 text-slate-500 hover:text-slate-900 hover:bg-white/50 rounded-lg transition-colors"
@@ -155,100 +183,126 @@ export default function Dashboard({
           </div>
         </header>
 
-        {/* DYNAMIC VIEW ROUTING */}
+        {/* DEFAULT DASHBOARD BACKGROUND CONTENT */}
         <div className="flex-1 flex justify-center items-center p-6">
-          {activeView === "settings_company" ? (
-            <div className="w-full max-w-xl bg-white/95 backdrop-blur-xl rounded-2xl shadow-xl p-8 border border-slate-100 my-auto">
-              <div className="mb-6 border-b border-slate-100 pb-4">
-                <h2 className="text-2xl font-bold text-slate-900">Company Settings</h2>
-                <p className="text-sm text-slate-500">Update your organization profile details below.</p>
+           <h2 className="text-2xl font-bold text-slate-400/70 animate-pulse">
+             {isVerticalMode && isSidebarOpen ? "Select" : "Select an option from the menu"}
+           </h2>
+        </div>
+
+        {/* RESPONSIVE MODAL OVERLAY FOR SETTINGS */}
+        {activeView === "settings_company" && (
+          <div 
+            className="absolute inset-0 z-40 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm md:p-6 transition-all duration-300"
+            onClick={() => setActiveView("dashboard")} // Clicking outside closes it
+          >
+            <div 
+              className="bg-white md:bg-white/95 md:backdrop-blur-xl w-full h-full md:h-auto md:max-w-xl md:rounded-2xl shadow-2xl flex flex-col overflow-y-auto"
+              onClick={(e) => e.stopPropagation()} // Clicking inside form prevents closing
+            >
+              
+              {/* MOBILE ONLY: Back Button Header */}
+              <div className="md:hidden flex items-center p-4 border-b border-slate-100 bg-slate-50 sticky top-0 z-10">
+                <button 
+                  onClick={() => setActiveView("dashboard")}
+                  className="flex items-center gap-2 text-slate-500 hover:text-slate-800 font-bold transition-colors"
+                >
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7"></path></svg>
+                  Back
+                </button>
+                <h2 className="ml-4 text-lg font-extrabold text-slate-800">Company Info</h2>
               </div>
 
-              {saveStatus.text && (
-                <div className={`mb-6 p-4 rounded-xl text-sm font-semibold border ${
-                  saveStatus.type === "error" ? "bg-red-50 text-red-700 border-red-100" : "bg-emerald-50 text-emerald-700 border-emerald-100"
-                }`}>
-                  {saveStatus.text}
-                </div>
-              )}
-
-              <form onSubmit={handleSaveCompany} className="space-y-4">
-                <div>
-                  <label className="block text-xs font-bold text-slate-500 mb-1 uppercase tracking-wider">Company Name</label>
-                  <input 
-                    type="text" 
-                    value={editForm.company_name} 
-                    onChange={(e) => setEditForm({...editForm, company_name: e.target.value})}
-                    className="w-full px-4 py-3 bg-slate-50 text-slate-900 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium"
-                    required 
-                  />
+              {/* FORM CONTENT */}
+              <div className="p-6 md:p-8 flex-1">
+                {/* Desktop Heading */}
+                <div className="hidden md:block mb-6 border-b border-slate-100 pb-4">
+                  <h2 className="text-2xl font-bold text-slate-900">Company Settings</h2>
+                  <p className="text-sm text-slate-500">Update your organization profile details below.</p>
                 </div>
 
-                <div>
-                  <label className="block text-xs font-bold text-slate-500 mb-1 uppercase tracking-wider">Factory Address</label>
-                  <input 
-                    type="text" 
-                    value={editForm.address} 
-                    onChange={(e) => setEditForm({...editForm, address: e.target.value})}
-                    className="w-full px-4 py-3 bg-slate-50 text-slate-900 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium" 
-                  />
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-bold text-slate-500 mb-1 uppercase tracking-wider">Support Email</label>
-                    <input 
-                      type="email" 
-                      value={editForm.support_email} 
-                      onChange={(e) => setEditForm({...editForm, support_email: e.target.value})}
-                      className="w-full px-4 py-3 bg-slate-50 text-slate-900 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium" 
-                    />
+                {saveStatus.text && (
+                  <div className={`mb-6 p-4 rounded-xl text-sm font-semibold border ${
+                    saveStatus.type === "error" ? "bg-red-50 text-red-700 border-red-100" : "bg-emerald-50 text-emerald-700 border-emerald-100"
+                  }`}>
+                    {saveStatus.text}
                   </div>
+                )}
+
+                <form onSubmit={handleSaveCompany} className="space-y-4">
                   <div>
-                    <label className="block text-xs font-bold text-slate-500 mb-1 uppercase tracking-wider">Support Phone</label>
+                    <label className="block text-xs font-bold text-slate-500 mb-1 uppercase tracking-wider">Company Name</label>
                     <input 
                       type="text" 
-                      value={editForm.support_phone} 
-                      onChange={(e) => setEditForm({...editForm, support_phone: e.target.value})}
-                      className="w-full px-4 py-3 bg-slate-50 text-slate-900 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium" 
+                      value={editForm.company_name} 
+                      onChange={(e) => setEditForm({...editForm, company_name: e.target.value})}
+                      className="w-full px-4 py-3 bg-slate-50 text-slate-900 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium transition-all"
+                      required 
                     />
                   </div>
-                </div>
 
-                <div>
-                  <label className="block text-xs font-bold text-slate-500 mb-1 uppercase tracking-wider">Logo URL or Path</label>
-                  <input 
-                    type="text" 
-                    value={editForm.logo_url} 
-                    onChange={(e) => setEditForm({...editForm, logo_url: e.target.value})}
-                    className="w-full px-4 py-3 bg-slate-50 text-slate-900 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium" 
-                  />
-                </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 mb-1 uppercase tracking-wider">Factory Address</label>
+                    <input 
+                      type="text" 
+                      value={editForm.address} 
+                      onChange={(e) => setEditForm({...editForm, address: e.target.value})}
+                      className="w-full px-4 py-3 bg-slate-50 text-slate-900 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium transition-all" 
+                    />
+                  </div>
 
-                <div className="pt-4 flex gap-4">
-                  <button 
-                    type="submit" 
-                    disabled={isSaving}
-                    className="flex-1 bg-blue-600 text-white font-bold py-3 rounded-xl hover:bg-blue-700 transition-all shadow-md shadow-blue-600/20 disabled:opacity-50 text-sm"
-                  >
-                    {isSaving ? "Saving Changes..." : "Save Company Info"}
-                  </button>
-                  <button 
-                    type="button" 
-                    onClick={() => setActiveView("dashboard")}
-                    className="px-6 bg-slate-100 text-slate-700 font-bold py-3 rounded-xl hover:bg-slate-200 transition-all text-sm"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </form>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-500 mb-1 uppercase tracking-wider">Support Email</label>
+                      <input 
+                        type="email" 
+                        value={editForm.support_email} 
+                        onChange={(e) => setEditForm({...editForm, support_email: e.target.value})}
+                        className="w-full px-4 py-3 bg-slate-50 text-slate-900 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium transition-all" 
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-500 mb-1 uppercase tracking-wider">Support Phone</label>
+                      <input 
+                        type="text" 
+                        value={editForm.support_phone} 
+                        onChange={(e) => setEditForm({...editForm, support_phone: e.target.value})}
+                        className="w-full px-4 py-3 bg-slate-50 text-slate-900 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium transition-all" 
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 mb-1 uppercase tracking-wider">Logo URL or Path</label>
+                    <input 
+                      type="text" 
+                      value={editForm.logo_url} 
+                      onChange={(e) => setEditForm({...editForm, logo_url: e.target.value})}
+                      className="w-full px-4 py-3 bg-slate-50 text-slate-900 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium transition-all" 
+                    />
+                  </div>
+
+                  <div className="pt-6 flex flex-col md:flex-row gap-4">
+                    <button 
+                      type="submit" 
+                      disabled={isSaving}
+                      className="w-full bg-blue-600 text-white font-bold py-4 md:py-3 rounded-xl hover:bg-blue-700 transition-all shadow-md shadow-blue-600/20 disabled:opacity-50 text-base md:text-sm"
+                    >
+                      {isSaving ? "Saving..." : "Save Company Info"}
+                    </button>
+                    <button 
+                      type="button" 
+                      onClick={() => setActiveView("dashboard")}
+                      className="hidden md:block px-6 bg-slate-100 text-slate-700 font-bold py-3 rounded-xl hover:bg-slate-200 transition-all text-sm"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </form>
+              </div>
             </div>
-          ) : (
-            <h2 className="text-2xl font-bold text-slate-400/70 animate-pulse">
-              {isVerticalMode && isSidebarOpen ? "Select" : "Select an option from the menu"}
-            </h2>
-          )}
-        </div>
+          </div>
+        )}
 
         {/* Footer */}
         <div className="w-full bg-white/95 backdrop-blur-md border-t border-slate-200/50 shadow-sm z-10 shrink-0">
