@@ -193,6 +193,7 @@ export default function Dashboard({
   // ==========================================
   // UPLOAD INVOICES LOGIC
   // ==========================================
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
       setSelectedFiles(Array.from(e.target.files));
