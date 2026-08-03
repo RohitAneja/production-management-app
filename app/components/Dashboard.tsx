@@ -72,7 +72,7 @@ export default function Dashboard({
   const [excelStatus, setExcelStatus] = useState({ type: "", text: "" });
 
   // ==========================================
-  // NEW: INVOICE REGISTER STATES
+  // INVOICE REGISTER STATES
   // ==========================================
   const [allInvoices, setAllInvoices] = useState<any[]>([]);
   const [isLoadingInvoices, setIsLoadingInvoices] = useState(false);
@@ -155,18 +155,8 @@ export default function Dashboard({
 
   useEffect(() => { if (activeView === "users") fetchUsersAndRoles(); }, [activeView]);
 
-  const filteredUsers = usersList.filter(user => {
-    const searchLower = searchQuery.toLowerCase();
-    const roleName = Array.isArray(user.roles) ? user.roles[0]?.role_name : user.roles?.role_name;
-    return (
-      (user.username?.toLowerCase().includes(searchLower)) ||
-      (user.mobile_number?.toLowerCase().includes(searchLower)) ||
-      (roleName?.toLowerCase().includes(searchLower))
-    );
-  });
-
   // ------------------------------------------
-  // NEW: INVOICE REGISTER LOGIC
+  // INVOICE REGISTER LOGIC
   // ------------------------------------------
   const fetchAllInvoices = async () => {
     setIsLoadingInvoices(true);
@@ -184,7 +174,6 @@ export default function Dashboard({
     setIsLoadingInvoices(false);
   };
 
-  // Fetch register data when the user navigates to the view
   useEffect(() => {
     if (activeView === "invoice_register") {
       fetchAllInvoices();
@@ -192,52 +181,32 @@ export default function Dashboard({
     }
   }, [activeView]);
 
-  // Filter Logic for Invoice Register
-  const filteredRegisterInvoices = allInvoices.filter(inv => {
-    const searchLower = invoiceSearchQuery.toLowerCase();
-    
-    // THE FIX: We use String() to force numbers/nulls into safe text before searching!
-    return (
-      (String(inv.invoice_no || "").toLowerCase().includes(searchLower)) ||
-      (String(inv.main_account || "").toLowerCase().includes(searchLower)) ||
-      (String(inv.sub_account || "").toLowerCase().includes(searchLower)) ||
-      (formatDisplayDate(inv.date).includes(searchLower))
-    );
-  });
-
-  
-  // Analytics Math for the Sticky Footer
-  const totalRegisterAmount = filteredRegisterInvoices.reduce((sum, inv) => sum + (Number(inv.amount) || 0), 0);
-  const casesBreakdown = filteredRegisterInvoices.reduce((acc, inv) => {
-    if (inv.num_of_cases && inv.packing_type) {
-      const pType = inv.packing_type;
-      acc[pType] = (acc[pType] || 0) + Number(inv.num_of_cases);
-    }
-    return acc;
-  }, {} as Record<string, number>);
-
   // ------------------------------------------
   // DISPLAY FORMATTER HELPERS
   // ------------------------------------------
-  const formatDisplayDate = (dbDate: string) => {
+
+  const formatDisplayDate = (dbDate: any) => {
     if (!dbDate) return "";
-    const parts = dbDate.split('-');
+    const strDate = String(dbDate);
+    const parts = strDate.split('-');
     if (parts.length === 3) return `${parts[2]}/${parts[1]}/${parts[0]}`; 
-    return dbDate;
+    return strDate;
   };
 
-  const formatDisplayInvoiceNo = (invNo: string) => {
+  const formatDisplayInvoiceNo = (invNo: any) => {
     if (!invNo) return "";
-    if (invNo.includes('/')) {
-      const parts = invNo.split('/');
+    const strInv = String(invNo); 
+    if (strInv.includes('/')) {
+      const parts = strInv.split('/');
       return parts[parts.length - 1]; 
     }
-    return invNo;
+    return strInv;
   };
 
-  const formatIndianAmount = (amount: number) => {
-    if (amount === null || amount === undefined) return "0";
-    return new Intl.NumberFormat('en-IN', { maximumFractionDigits: 2 }).format(amount);
+  const formatIndianAmount = (amount: any) => {
+    const num = Number(amount);
+    if (isNaN(num)) return "0";
+    return new Intl.NumberFormat('en-IN', { maximumFractionDigits: 2 }).format(num);
   };
 
   const handleMainScroll = (e: React.UIEvent<HTMLDivElement>) => {
@@ -248,6 +217,44 @@ export default function Dashboard({
       setIsUploadPanelOpen(false);
     }
   };
+
+  // ==========================================
+  // BULLETPROOF SEARCH HELPER
+  // ==========================================
+  const safeSearch = (fieldValue: any, query: string) => {
+    if (fieldValue === null || fieldValue === undefined) return false;
+    return String(fieldValue).toLowerCase().includes(query.toLowerCase());
+  };
+
+  // 1. Safe User Search
+  const filteredUsers = usersList.filter(user => {
+    const roleName = Array.isArray(user.roles) ? user.roles[0]?.role_name : user.roles?.role_name;
+    return (
+      safeSearch(user.username, searchQuery) ||
+      safeSearch(user.mobile_number, searchQuery) ||
+      safeSearch(roleName, searchQuery)
+    );
+  });
+
+  // 2. Safe Invoice Register Search
+  const filteredRegisterInvoices = allInvoices.filter(inv => {
+    return (
+      safeSearch(inv.invoice_no, invoiceSearchQuery) ||
+      safeSearch(inv.main_account, invoiceSearchQuery) ||
+      safeSearch(inv.sub_account, invoiceSearchQuery) ||
+      safeSearch(formatDisplayDate(inv.date), invoiceSearchQuery)
+    );
+  });
+
+  // Analytics Math for the Sticky Footer
+  const totalRegisterAmount = filteredRegisterInvoices.reduce((sum, inv) => sum + (Number(inv.amount) || 0), 0);
+  const casesBreakdown = filteredRegisterInvoices.reduce((acc, inv) => {
+    if (inv.num_of_cases && inv.packing_type) {
+      const pType = inv.packing_type;
+      acc[pType] = (acc[pType] || 0) + Number(inv.num_of_cases);
+    }
+    return acc;
+  }, {} as Record<string, number>);
 
   // ==========================================
   // FORM HANDLERS
@@ -736,7 +743,7 @@ export default function Dashboard({
           )}
 
           {/* ========================================================= */}
-          {/* NEW: INVOICE REGISTER VIEW */}
+          {/* INVOICE REGISTER VIEW */}
           {/* ========================================================= */}
           {activeView === "invoice_register" && (
             <div className="flex-1 flex flex-col bg-white md:bg-white/95 md:backdrop-blur-xl rounded-none md:rounded-2xl shadow-none md:shadow-xl border-none md:border md:border-white overflow-hidden animate-fade-in relative">
@@ -939,7 +946,7 @@ export default function Dashboard({
         {/* MODALS */}
         {/* ========================================================= */}
 
-        {/* SINGLE INVOICE DETAILS MODAL (Pop-up from Invoice Register) */}
+        {/* SINGLE INVOICE DETAILS MODAL */}
         {selectedInvoice && (
           <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm md:p-6 transition-all duration-300 animate-fade-in" onClick={() => setSelectedInvoice(null)}>
             <div className="bg-white md:bg-white/95 md:backdrop-blur-xl w-full h-full md:h-auto md:max-w-3xl md:rounded-2xl shadow-2xl flex flex-col overflow-y-auto" onClick={(e) => e.stopPropagation()}>
@@ -957,8 +964,6 @@ export default function Dashboard({
               </div>
               
               <div className="p-6 md:p-8 space-y-8">
-                
-                {/* Account Section */}
                 <div className="bg-slate-50 p-5 rounded-2xl border border-slate-100">
                   <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3">Account Details</p>
                   {selectedInvoice.sub_account ? (
@@ -971,7 +976,6 @@ export default function Dashboard({
                   )}
                 </div>
 
-                {/* Logistics & Payment Grid */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
                   <div>
                     <span className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Invoice Date</span>
