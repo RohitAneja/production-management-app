@@ -230,11 +230,35 @@ export default function Dashboard({
   };
 
   // ==========================================
-  // BULLETPROOF SEARCH HELPER
+  // BULLETPROOF SEARCH & WHATSAPP HELPERS
   // ==========================================
   const safeSearch = (fieldValue: any, query: string) => {
     if (fieldValue === null || fieldValue === undefined) return false;
     return String(fieldValue).toLowerCase().includes(query.toLowerCase());
+  };
+
+  // NEW: WhatsApp Sharing Logic
+  const shareOnWhatsApp = (inv: any, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation(); // Prevents clicking the row and opening the modal simultaneously
+    
+    const partyName = inv.sub_account ? `${inv.sub_account} c/o ${inv.main_account}` : inv.main_account;
+    const cases = inv.num_of_cases ? `${inv.num_of_cases} ${inv.packing_type}` : 'N/A';
+    
+    let text = `*Invoice Dispatch Details*\n\n`;
+    text += `*Inv No:* ${formatDisplayInvoiceNo(inv.invoice_no)}\n`;
+    text += `*Party:* ${partyName}\n`;
+    text += `*Amount:* ₹${formatIndianAmount(inv.amount)}\n`;
+    text += `*Cases:* ${cases}\n`;
+    text += `*Transport:* ${inv.transport || 'N/A'}\n`;
+    text += `*LR No:* ${inv.lr_number || 'Pending'}\n`;
+    text += `*LR Date:* ${formatDisplayDate(inv.lr_date) || 'Pending'}\n`;
+    
+    if (inv.builty_image_url) {
+      text += `\n*View Builty Photo:* ${inv.builty_image_url}`;
+    }
+
+    const whatsappUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`;
+    window.open(whatsappUrl, '_blank');
   };
 
   const filteredUsers = usersList.filter(user => {
@@ -293,7 +317,7 @@ export default function Dashboard({
            setBuiltyStatus({ type: "error", text: data.error || "Could not read builty details or find a matching invoice." });
         }
       } catch (err: any) {
-        setBuiltyStatus({ type: "error", text: "Server OCR connection failed. Please try again." });
+        setBuiltyStatus({ type: "error", text: "Server connection failed. Please try again." });
       }
       setIsParsingBuilty(false);
       if (builtyInputRef.current) builtyInputRef.current.value = "";
@@ -305,29 +329,25 @@ export default function Dashboard({
     setShowBuiltyEdit(true); 
   };
 
- const saveBuiltyToDatabase = async () => {
+  const saveBuiltyToDatabase = async () => {
     if (!matchedInvoice || !builtyFile) return;
     setIsSavingBuilty(true);
     setBuiltyStatus({ type: "info", text: "Uploading image to secure cloud storage..." });
 
     try {
-       // 1. Create standardized file name: "1515_BAKSHI_TRADERS.jpg"
        const fileExt = builtyFile.name.split('.').pop() || 'jpg';
        const safePartyName = matchedInvoice.main_account.replace(/[^a-zA-Z0-9]/g, '_');
        const fileName = `${formatDisplayInvoiceNo(matchedInvoice.invoice_no)}_${safePartyName}.${fileExt}`;
 
-       // 2. Upload the ACTUAL file to the Supabase "builties" bucket
        const { data: storageData, error: storageErr } = await supabase.storage
          .from('builties')
          .upload(fileName, builtyFile, { upsert: true });
 
        if (storageErr) throw storageErr;
        
-       // 3. Get the real, clickable public internet URL for the photo
        const { data: publicUrlData } = supabase.storage.from('builties').getPublicUrl(fileName);
        const imageUrl = publicUrlData.publicUrl;
 
-       // 4. Update the Invoice Database Row with the REAL URL
        const { error: dbErr } = await supabase.from('invoices').update({
            lr_number: builtyForm.lr_number || null,
            lr_date: builtyForm.lr_date || null,
@@ -336,7 +356,6 @@ export default function Dashboard({
 
        if (dbErr) throw dbErr;
 
-       // 5. Trigger Local Device Download (Optional Backup)
        const localUrl = URL.createObjectURL(builtyFile);
        const a = document.createElement("a");
        a.href = localUrl;
@@ -360,6 +379,7 @@ export default function Dashboard({
     }
     setIsSavingBuilty(false);
   };
+
 
   // ==========================================
   // FORM HANDLERS (Users & Settings)
@@ -905,10 +925,10 @@ export default function Dashboard({
                         className="w-full pl-9 pr-4 h-11 shrink-0 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium transition-all" 
                       />
                     </div>
+                    {/* REMOVED capture="environment" to allow Gallery + Camera choice */}
                     <input 
                        type="file" 
                        accept="image/*" 
-                       capture="environment" 
                        className="hidden" 
                        ref={builtyInputRef} 
                        onChange={handleBuiltyUploadChange}
@@ -919,7 +939,7 @@ export default function Dashboard({
                        className="flex shrink-0 bg-blue-600 text-white px-4 h-11 rounded-xl text-sm font-bold shadow-md hover:bg-blue-700 transition-colors items-center gap-2 disabled:opacity-50"
                     >
                       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"></path><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
-                      <span className="hidden md:block">{isParsingBuilty ? "Scanning..." : "Capture Builty"}</span>
+                      <span className="hidden md:block">{isParsingBuilty ? "Scanning..." : "Upload Builty"}</span>
                     </button>
                   </div>
                 </div>
@@ -1039,7 +1059,6 @@ export default function Dashboard({
             <div className="flex-1 flex flex-col bg-white md:bg-white/95 md:backdrop-blur-xl rounded-none md:rounded-2xl shadow-none md:shadow-xl border-none md:border md:border-white overflow-hidden animate-fade-in relative">
               <div className="flex-1 flex flex-col h-full relative">
                 
-                {/* Header & Search Bar */}
                 <div className="p-4 md:p-6 border-b border-slate-100 bg-white/70 backdrop-blur-md sticky top-0 z-20 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 shrink-0">
                   <div>
                     <h2 className="text-xl md:text-2xl font-bold text-slate-900">Invoice Register</h2>
@@ -1093,19 +1112,25 @@ export default function Dashboard({
                               )}
                             </div>
                             
-                            {/* DIRECT BUILTY BUTTON (MOBILE) */}
-                            {inv.builty_image_url && (
-                                <button 
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    window.open(inv.builty_image_url, "_blank");
-                                  }}
-                                  className="mt-4 flex items-center justify-center gap-2 w-full py-2 bg-indigo-50 text-indigo-700 rounded-lg text-xs font-bold border border-indigo-100 hover:bg-indigo-100 transition-colors"
-                                >
-                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"></path></svg>
-                                  View Builty
-                                </button>
-                            )}
+                            {/* ACTION BUTTONS (MOBILE) */}
+                            <div className="mt-4 flex gap-2 w-full">
+                               {inv.builty_image_url && (
+                                   <button 
+                                     onClick={(e) => { e.stopPropagation(); window.open(inv.builty_image_url, "_blank"); }}
+                                     className="flex-1 flex items-center justify-center gap-2 py-2 bg-indigo-50 text-indigo-700 rounded-lg text-xs font-bold border border-indigo-100 hover:bg-indigo-100 transition-colors"
+                                   >
+                                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"></path></svg>
+                                     View Builty
+                                   </button>
+                               )}
+                               <button 
+                                 onClick={(e) => shareOnWhatsApp(inv, e)}
+                                 className="flex-1 flex items-center justify-center gap-2 py-2 bg-[#25D366]/10 text-[#128C7E] rounded-lg text-xs font-bold border border-[#25D366]/20 hover:bg-[#25D366]/20 transition-colors"
+                               >
+                                 <svg viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51a12.8 12.8 0 00-.57-.01c-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z"/></svg>
+                                 Share
+                               </button>
+                            </div>
                           </div>
                         ))}
                         {filteredRegisterInvoices.length === 0 && (
@@ -1123,7 +1148,7 @@ export default function Dashboard({
                               <th className="p-4 w-[35%]">Account</th>
                               <th className="p-4 w-[10%]">Cases</th>
                               <th className="p-4 w-[15%] text-right">Amount</th>
-                              <th className="p-4 w-[10%] text-center pr-6">Builty</th> {/* NEW COLUMN */}
+                              <th className="p-4 w-[10%] text-center pr-6">Actions</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-100 bg-white">
@@ -1163,22 +1188,29 @@ export default function Dashboard({
                                   ₹{formatIndianAmount(inv.amount)}
                                 </td>
                                 
-                                {/* DIRECT BUILTY BUTTON (DESKTOP) */}
+                                {/* ACTIONS COLUMN (DESKTOP) */}
                                 <td className="p-4 pr-6 text-center">
-                                  {inv.builty_image_url ? (
+                                  <div className="flex items-center justify-center gap-1">
                                     <button
-                                      onClick={(e) => {
-                                        e.stopPropagation(); // Prevents opening the whole row's detailed modal
-                                        window.open(inv.builty_image_url, "_blank");
-                                      }}
-                                      className="text-indigo-600 hover:text-indigo-800 p-2 rounded-lg hover:bg-indigo-100 transition-colors"
-                                      title="Open Builty Image"
+                                      onClick={(e) => shareOnWhatsApp(inv, e)}
+                                      className="text-[#128C7E] hover:text-[#075E54] p-2 rounded-lg hover:bg-[#25D366]/10 transition-colors"
+                                      title="Share on WhatsApp"
                                     >
-                                      <svg className="w-5 h-5 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"></path></svg>
+                                      <svg viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51a12.8 12.8 0 00-.57-.01c-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z"/></svg>
                                     </button>
-                                  ) : (
-                                    <span className="text-slate-300">—</span>
-                                  )}
+                                    
+                                    {inv.builty_image_url ? (
+                                      <button
+                                        onClick={(e) => { e.stopPropagation(); window.open(inv.builty_image_url, "_blank"); }}
+                                        className="text-indigo-600 hover:text-indigo-800 p-2 rounded-lg hover:bg-indigo-100 transition-colors"
+                                        title="View Builty Photo"
+                                      >
+                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"></path></svg>
+                                      </button>
+                                    ) : (
+                                      <div className="w-9 h-9" /> /* Spacing block so alignment stays clean when no builty */
+                                    )}
+                                  </div>
                                 </td>
                                 
                               </tr>
@@ -1397,15 +1429,25 @@ export default function Dashboard({
                     )}
                   </div>
                   
-                  {selectedInvoice.builty_image_url && (
+                  {/* MODAL ACTIONS: WhatsApp & View Builty */}
+                  <div className="flex items-center gap-3 w-full md:w-auto">
                     <button 
-                       onClick={() => window.open(selectedInvoice.builty_image_url, "_blank")}
-                       className="flex items-center gap-2 px-4 py-2 bg-indigo-50 text-indigo-700 font-bold border border-indigo-200 rounded-xl hover:bg-indigo-100 transition-colors text-sm"
+                       onClick={(e) => shareOnWhatsApp(selectedInvoice, e)}
+                       className="flex-1 md:flex-none flex items-center justify-center gap-2 px-4 py-2 bg-[#25D366]/10 text-[#128C7E] font-bold border border-[#25D366]/20 rounded-xl hover:bg-[#25D366]/20 transition-colors text-sm"
                     >
-                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
-                       View Builty Photo
+                       <svg viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51a12.8 12.8 0 00-.57-.01c-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z"/></svg>
+                       Share
                     </button>
-                  )}
+                    {selectedInvoice.builty_image_url && (
+                      <button 
+                         onClick={() => window.open(selectedInvoice.builty_image_url, "_blank")}
+                         className="flex-1 md:flex-none flex items-center justify-center gap-2 px-4 py-2 bg-indigo-50 text-indigo-700 font-bold border border-indigo-200 rounded-xl hover:bg-indigo-100 transition-colors text-sm"
+                      >
+                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                         View Builty
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
