@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
-import { PDFParse } from 'pdf-parse';
 
-// --- VERCEL SERVER POLYFILLS ---
+// --- 1. VERCEL SERVER POLYFILLS ---
+// These MUST run before the PDF library is loaded!
 if (typeof global.DOMMatrix === 'undefined') {
   (global as any).DOMMatrix = class DOMMatrix {};
 }
@@ -12,8 +12,15 @@ if (typeof global.Path2D === 'undefined') {
   (global as any).Path2D = class Path2D {};
 }
 
+// Prevents Vercel from timing out the heavy PDF extraction
+export const maxDuration = 60; 
+
 export async function POST(req: Request) {
   try {
+    // --- 2. DYNAMIC LOAD ---
+    // We load the library INSIDE the function to bypass Next.js import hoisting.
+    const { PDFParse } = require('pdf-parse');
+
     const formData = await req.formData();
     const file = formData.get('file') as File;
     const expectedCompany = (formData.get('company_name') as string) || "";
@@ -25,7 +32,7 @@ export async function POST(req: Request) {
     const arrayBuffer = await file.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
     
-    // Initialize the class and extract the text
+    // Initialize the PDF class and extract the text
     const parser = new PDFParse({ data: buffer });
     const data = await parser.getText();
     const rawText = data.text || "";
@@ -45,21 +52,19 @@ export async function POST(req: Request) {
     // THE "SANITIZE FIRST" EXTRACTION METHOD
     // ==========================================
     
-    // 1. Remove all hidden quotation marks that break regex searches
+    // Remove all hidden quotation marks that break regex searches
     const cleanText = rawText.replace(/"/g, '');
     
-    // 2. Create a version with NO commas so amount parsing is flawless
+    // Create a version with NO commas so amount parsing is flawless
     const noCommaText = cleanText.replace(/,/g, '');
 
     // 1. Extract Invoice Number
-    // Forces the search to start exactly at "Bill No" or "Invoice No" and grabs the alphanumeric ID
     const invoiceNoMatch = cleanText.match(/(?:Bill|Invoice)\s*No[\.\s:]+([A-Z0-9\/\-]+)/i);
     const invoiceNo = invoiceNoMatch ? invoiceNoMatch[1].trim() : "UNKNOWN";
 
     // 2. Extract Date
-    // Forces the search to start at "Date" or "Dated" and grabs the exact DD/MM/YYYY format
     const dateMatch = cleanText.match(/(?:Date|Dated)[^\d]*(\d{2}\/\d{2}\/\d{4})/i);
-    let formattedDate = new Date().toISOString().split('T')[0]; // Default to today
+    let formattedDate = new Date().toISOString().split('T')[0]; 
     if (dateMatch && dateMatch[1]) {
       const [day, month, year] = dateMatch[1].split('/');
       formattedDate = `${year}-${month}-${day}`;
@@ -70,12 +75,10 @@ export async function POST(req: Request) {
     const mainAccount = customerMatch ? customerMatch[1].trim() : "Unknown Customer";
 
     // 4. Extract Transport
-    // Uses the clean text to grab everything after "Transport:" until the line ends
     const transportMatch = cleanText.match(/Transport[:\s]+([^\r\n]+)/i);
     const transport = transportMatch ? transportMatch[1].trim() : null;
 
     // 5. Extract Grand Total Amount 
-    // Uses the no-comma text. Strictly searches for "Grand Total", skips words, grabs the raw decimal.
     const amountMatch = noCommaText.match(/Grand Total[^\d]*(\d+\.\d{2})/i);
     let amountVal = 0;
     if (amountMatch && amountMatch[1]) {
