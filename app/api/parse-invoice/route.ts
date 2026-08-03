@@ -82,9 +82,8 @@ export async function POST(req: Request) {
     
     // Step C: Convert them to actual numbers and pick the absolute highest one!
     if (allAmounts && allAmounts.length > 0) {
-        // Convert the string array to a number array
-        const numericAmounts = allAmounts.map(val => parseFloat(val));
-        // Use JavaScript's Math.max to instantly find the highest value
+        // THE FIX: We explicitly tell TypeScript that 'val' is a string!
+        const numericAmounts = allAmounts.map((val: string) => parseFloat(val));
         amountVal = Math.max(...numericAmounts);
     }
 
