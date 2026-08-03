@@ -77,9 +77,7 @@ export default function Dashboard({
   const [invoiceSearchQuery, setInvoiceSearchQuery] = useState("");
   const [selectedInvoice, setSelectedInvoice] = useState<any | null>(null);
 
-  // ==========================================
-  // NEW: UPLOAD BUILTY STATES
-  // ==========================================
+  // Upload Builty States
   const [pendingInvoices, setPendingInvoices] = useState<any[]>([]);
   const [isLoadingPending, setIsLoadingPending] = useState(false);
   const [pendingSearchQuery, setPendingSearchQuery] = useState("");
@@ -154,7 +152,7 @@ export default function Dashboard({
   useEffect(() => { setEditForm({ ...company }); }, [company]);
 
   // ------------------------------------------
-  // USER MANAGEMENT LOGIC
+  // DATA FETCHING
   // ------------------------------------------
   const fetchUsersAndRoles = async () => {
     setIsLoadingUsers(true);
@@ -171,11 +169,6 @@ export default function Dashboard({
     setIsLoadingUsers(false);
   };
 
-  useEffect(() => { if (activeView === "users") fetchUsersAndRoles(); }, [activeView]);
-
-  // ------------------------------------------
-  // INVOICE REGISTER & PENDING BUILTY LOGIC
-  // ------------------------------------------
   const fetchAllInvoices = async () => {
     setIsLoadingInvoices(true);
     try {
@@ -189,7 +182,6 @@ export default function Dashboard({
   const fetchPendingInvoices = async () => {
     setIsLoadingPending(true);
     try {
-      // Fetch invoices where LR Number is null or empty
       const { data, error } = await supabase.from('invoices').select('*').or('lr_number.is.null,lr_number.eq.""').order('date', { ascending: false }); 
       if (error) throw error;
       if (data) setPendingInvoices(data);
@@ -198,6 +190,7 @@ export default function Dashboard({
   };
 
   useEffect(() => {
+    if (activeView === "users") fetchUsersAndRoles();
     if (activeView === "invoice_register") { fetchAllInvoices(); setInvoiceSearchQuery(""); }
     if (activeView === "upload_builty") { fetchPendingInvoices(); setPendingSearchQuery(""); }
   }, [activeView]);
@@ -280,22 +273,19 @@ export default function Dashboard({
         const formData = new FormData();
         formData.append("file", file);
         
-        // Pass pending invoice numbers to backend to help it find the exact match
         const pendingNos = pendingInvoices.map(inv => formatDisplayInvoiceNo(inv.invoice_no));
         formData.append("pending_invoices", JSON.stringify(pendingNos));
 
-        // Note: This API call simulates your future backend OCR setup
         const response = await fetch('/api/parse-builty', { method: 'POST', body: formData });
         const data = await response.json();
         
         if (data.success && data.matched_invoice_no) {
-           // Find the exact invoice from our pending list
            const matched = pendingInvoices.find(i => formatDisplayInvoiceNo(i.invoice_no) === data.matched_invoice_no);
            if (matched) {
               setMatchedInvoice(matched);
               setBuiltyForm({ lr_number: data.lr_number || "", lr_date: data.lr_date || new Date().toISOString().split('T')[0] });
               setBuiltyStatus({ type: "", text: "" });
-              setShowBuiltyConfirm(true); // Open the confirmation dialog!
+              setShowBuiltyConfirm(true); 
            } else {
               setBuiltyStatus({ type: "error", text: `Builty matched Invoice #${data.matched_invoice_no}, but it is not in the pending list.` });
            }
@@ -312,7 +302,7 @@ export default function Dashboard({
 
   const confirmBuiltyMatch = () => {
     setShowBuiltyConfirm(false);
-    setShowBuiltyEdit(true); // Proceed to edit/save dialog
+    setShowBuiltyEdit(true); 
   };
 
   const saveBuiltyToDatabase = async () => {
@@ -321,36 +311,26 @@ export default function Dashboard({
     setBuiltyStatus({ type: "info", text: "Saving Builty details..." });
 
     try {
-       // 1. Create standardized file name: "1515_BAKSHI_TRADERS.jpg"
        const fileExt = builtyFile.name.split('.').pop() || 'jpg';
        const safePartyName = matchedInvoice.main_account.replace(/[^a-zA-Z0-9]/g, '_');
        const fileName = `${formatDisplayInvoiceNo(matchedInvoice.invoice_no)}_${safePartyName}.${fileExt}`;
 
-       // 2. Upload to Supabase Storage Bucket (Assuming bucket name is 'builties')
-       // const { data: storageData, error: storageErr } = await supabase.storage.from('builties').upload(fileName, builtyFile, { upsert: true });
-       // if (storageErr) throw storageErr;
-       
-       // const { data: publicUrlData } = supabase.storage.from('builties').getPublicUrl(fileName);
-       // const imageUrl = publicUrlData.publicUrl;
-       
-       // MOCK URL since we aren't executing real storage locally yet
+       // MOCK URL for testing - replace with actual Supabase Storage URL in production
        const imageUrl = "uploaded_successfully"; 
 
-       // 3. Update the Invoice Database Row
        const { error: dbErr } = await supabase.from('invoices').update({
-           lr_number: builtyForm.lr_number || null, // Sends null if empty
-           lr_date: builtyForm.lr_date || null,     // Prevents Postgres Date crash
-           builty_image_url: imageUrl               // Saving reference to photo
+           lr_number: builtyForm.lr_number || null,
+           lr_date: builtyForm.lr_date || null,
+           builty_image_url: imageUrl
        }).eq('invoice_no', matchedInvoice.invoice_no);
 
-       
        if (dbErr) throw dbErr;
 
-       // 4. Trigger Local Device Download
+       // Trigger Local Device Download
        const localUrl = URL.createObjectURL(builtyFile);
        const a = document.createElement("a");
        a.href = localUrl;
-       a.download = fileName; // Names it locally as 1515_BAKSHI_TRADERS.jpg
+       a.download = fileName; 
        document.body.appendChild(a);
        a.click();
        document.body.removeChild(a);
@@ -362,7 +342,7 @@ export default function Dashboard({
            setMatchedInvoice(null);
            setBuiltyFile(null);
            setBuiltyStatus({ type: "", text: "" });
-           fetchPendingInvoices(); // Refresh the list to remove the updated invoice
+           fetchPendingInvoices(); 
        }, 2000);
 
     } catch (err: any) {
@@ -899,7 +879,6 @@ export default function Dashboard({
             <div className="flex-1 flex flex-col bg-white md:bg-white/95 md:backdrop-blur-xl rounded-none md:rounded-2xl shadow-none md:shadow-xl border-none md:border md:border-white overflow-hidden animate-fade-in relative">
               <div className="flex-1 flex flex-col h-full relative">
                 
-                {/* Header & Upload Button */}
                 <div className="p-4 md:p-6 border-b border-slate-100 bg-white/70 backdrop-blur-md sticky top-0 z-20 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 shrink-0">
                   <div>
                     <h2 className="text-xl md:text-2xl font-bold text-slate-900">Upload Builty</h2>
@@ -917,7 +896,6 @@ export default function Dashboard({
                         className="w-full pl-9 pr-4 h-11 shrink-0 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium transition-all" 
                       />
                     </div>
-                    {/* HIDDEN FILE INPUT for Camera/Gallery */}
                     <input 
                        type="file" 
                        accept="image/*" 
@@ -945,7 +923,6 @@ export default function Dashboard({
                   </div>
                 )}
 
-                {/* Data Table */}
                 <div className="flex-1 overflow-y-auto p-0 md:p-6 pt-4 md:pt-4">
                   {isLoadingPending ? (
                     <div className="flex justify-center items-center h-full min-h-[400px]">
@@ -953,7 +930,6 @@ export default function Dashboard({
                     </div>
                   ) : (
                     <>
-                      {/* MOBILE CARD VIEW */}
                       <div className="md:hidden flex flex-col divide-y divide-slate-100">
                         {filteredPendingInvoices.map((inv) => (
                           <div key={inv.invoice_no} className="p-4 hover:bg-slate-50 transition-colors">
@@ -988,7 +964,6 @@ export default function Dashboard({
                         )}
                       </div>
 
-                      {/* DESKTOP TABLE VIEW */}
                       <div className="hidden md:block overflow-x-auto border border-slate-200 rounded-xl bg-white shadow-sm">
                         <table className="w-full text-left border-collapse min-w-[900px]">
                           <thead className="bg-slate-50 border-b border-slate-200">
@@ -1080,9 +1055,10 @@ export default function Dashboard({
                     </div>
                   ) : (
                     <>
+                      {/* MOBILE CARD VIEW FOR INVOICE REGISTER */}
                       <div className="md:hidden flex flex-col divide-y divide-slate-100">
                         {filteredRegisterInvoices.map((inv) => (
-                          <div key={inv.invoice_no} onClick={() => setSelectedInvoice(inv)} className="p-4 hover:bg-blue-50/50 transition-colors cursor-pointer">
+                          <div key={inv.invoice_no} onClick={() => setSelectedInvoice(inv)} className="p-4 hover:bg-blue-50/50 transition-colors cursor-pointer flex flex-col">
                             <div className="flex justify-between items-start mb-2">
                               <span className="font-bold text-slate-900">{formatDisplayInvoiceNo(inv.invoice_no)}</span>
                               <span className="text-sm font-bold text-emerald-600">₹{formatIndianAmount(inv.amount)}</span>
@@ -1107,6 +1083,20 @@ export default function Dashboard({
                                 <span className="text-slate-300">—</span>
                               )}
                             </div>
+                            
+                            {/* DIRECT BUILTY BUTTON (MOBILE) */}
+                            {inv.builty_image_url && (
+                                <button 
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    window.open(inv.builty_image_url, "_blank");
+                                  }}
+                                  className="mt-4 flex items-center justify-center gap-2 w-full py-2 bg-indigo-50 text-indigo-700 rounded-lg text-xs font-bold border border-indigo-100 hover:bg-indigo-100 transition-colors"
+                                >
+                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"></path></svg>
+                                  View Builty
+                                </button>
+                            )}
                           </div>
                         ))}
                         {filteredRegisterInvoices.length === 0 && (
@@ -1114,20 +1104,26 @@ export default function Dashboard({
                         )}
                       </div>
 
+                      {/* DESKTOP TABLE VIEW FOR INVOICE REGISTER */}
                       <div className="hidden md:block overflow-x-auto">
                         <table className="w-full text-left border-collapse min-w-[900px]">
                           <thead className="bg-slate-50 sticky top-0 z-10 shadow-sm border-b border-slate-200">
                             <tr className="text-slate-600 text-xs uppercase tracking-wider font-bold">
                               <th className="p-4 pl-6 w-[15%]">Inv No</th>
                               <th className="p-4 w-[15%]">Date</th>
-                              <th className="p-4 w-[40%]">Account</th>
-                              <th className="p-4 w-[15%]">Cases</th>
-                              <th className="p-4 w-[15%] text-right pr-6">Amount</th>
+                              <th className="p-4 w-[35%]">Account</th>
+                              <th className="p-4 w-[10%]">Cases</th>
+                              <th className="p-4 w-[15%] text-right">Amount</th>
+                              <th className="p-4 w-[10%] text-center pr-6">Builty</th> {/* NEW COLUMN */}
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-100 bg-white">
                             {filteredRegisterInvoices.map((inv) => (
-                              <tr key={inv.invoice_no} onClick={() => setSelectedInvoice(inv)} className="hover:bg-blue-50/50 transition-colors cursor-pointer group">
+                              <tr 
+                                key={inv.invoice_no} 
+                                onClick={() => setSelectedInvoice(inv)}
+                                className="hover:bg-blue-50/50 transition-colors cursor-pointer group"
+                              >
                                 <td className="p-4 pl-6 text-sm font-bold text-slate-900 group-hover:text-blue-600 transition-colors">
                                   {formatDisplayInvoiceNo(inv.invoice_no)}
                                 </td>
@@ -1154,13 +1150,32 @@ export default function Dashboard({
                                     <span className="text-slate-300">—</span>
                                   )}
                                 </td>
-                                <td className="p-4 pr-6 text-sm font-bold text-emerald-600 text-right">
+                                <td className="p-4 text-sm font-bold text-emerald-600 text-right">
                                   ₹{formatIndianAmount(inv.amount)}
                                 </td>
+                                
+                                {/* DIRECT BUILTY BUTTON (DESKTOP) */}
+                                <td className="p-4 pr-6 text-center">
+                                  {inv.builty_image_url ? (
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation(); // Prevents opening the whole row's detailed modal
+                                        window.open(inv.builty_image_url, "_blank");
+                                      }}
+                                      className="text-indigo-600 hover:text-indigo-800 p-2 rounded-lg hover:bg-indigo-100 transition-colors"
+                                      title="Open Builty Image"
+                                    >
+                                      <svg className="w-5 h-5 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"></path></svg>
+                                    </button>
+                                  ) : (
+                                    <span className="text-slate-300">—</span>
+                                  )}
+                                </td>
+                                
                               </tr>
                             ))}
                             {filteredRegisterInvoices.length === 0 && (
-                              <tr><td colSpan={5} className="p-12 text-center text-slate-400 font-medium">No invoices found matching your criteria.</td></tr>
+                              <tr><td colSpan={6} className="p-12 text-center text-slate-400 font-medium">No invoices found matching your criteria.</td></tr>
                             )}
                           </tbody>
                         </table>
@@ -1169,6 +1184,7 @@ export default function Dashboard({
                   )}
                 </div>
 
+                {/* Sticky Summary Footer */}
                 <div className="bg-slate-800 text-white p-4 md:p-5 sticky bottom-0 z-20 flex flex-col md:flex-row justify-between items-center shrink-0 border-t border-slate-700">
                   <div className="flex flex-wrap items-center gap-3 md:gap-6 text-sm font-medium mb-3 md:mb-0">
                     <span className="text-slate-400 uppercase tracking-widest text-xs font-bold hidden md:inline">Totals Summary</span>
@@ -1341,7 +1357,7 @@ export default function Dashboard({
           </div>
         )}
 
-        {/* 3. SINGLE INVOICE DETAILS MODAL (Updated with View Builty Button) */}
+        {/* 3. SINGLE INVOICE DETAILS MODAL */}
         {selectedInvoice && (
           <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm md:p-6 transition-all duration-300 animate-fade-in" onClick={() => setSelectedInvoice(null)}>
             <div className="bg-white md:bg-white/95 md:backdrop-blur-xl w-full h-full md:h-auto md:max-w-3xl md:rounded-2xl shadow-2xl flex flex-col overflow-y-auto" onClick={(e) => e.stopPropagation()}>
@@ -1372,7 +1388,6 @@ export default function Dashboard({
                     )}
                   </div>
                   
-                  {/* View Builty Photo Button! */}
                   {selectedInvoice.builty_image_url && (
                     <button 
                        onClick={() => window.open(selectedInvoice.builty_image_url, "_blank")}
