@@ -64,6 +64,9 @@ export default function Dashboard({
   const [isScanning, setIsScanning] = useState(false);
   const [scannedInvoices, setScannedInvoices] = useState<any[]>([]);
   const [uploadStatus, setUploadStatus] = useState({ type: "", text: "" });
+  
+  // NEW: State to control the collapsing upload panel
+  const [isUploadPanelOpen, setIsUploadPanelOpen] = useState(true);
 
   // Invoice Upload States (Excel)
   const excelInputRef = useRef<HTMLInputElement>(null);
@@ -71,6 +74,9 @@ export default function Dashboard({
   const [isProcessingExcel, setIsProcessingExcel] = useState(false);
   const [excelStatus, setExcelStatus] = useState({ type: "", text: "" });
 
+  // ==========================================
+  // HELPERS & LIFECYCLE
+  // ==========================================
   useEffect(() => {
     if (typeof window !== "undefined") {
       setIsVerticalMode(window.innerHeight > window.innerWidth);
@@ -150,6 +156,27 @@ export default function Dashboard({
     );
   });
 
+  // NEW: Date Formatter helper
+  const formatDisplayDate = (dbDate: string) => {
+    if (!dbDate) return "";
+    const parts = dbDate.split('-');
+    if (parts.length === 3) return `${parts[2]}/${parts[1]}/${parts[0]}`; 
+    return dbDate;
+  };
+
+  // NEW: Smart Scroll handler to auto-collapse/expand the header
+  const handleMainScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const scrollTop = e.currentTarget.scrollTop;
+    if (scrollTop < 20 && !isUploadPanelOpen) {
+      setIsUploadPanelOpen(true);
+    } else if (scrollTop > 100 && isUploadPanelOpen && scannedInvoices.length > 0) {
+      setIsUploadPanelOpen(false);
+    }
+  };
+
+  // ==========================================
+  // FORM HANDLERS
+  // ==========================================
   const handleAddUser = async (e: React.FormEvent) => {
     e.preventDefault(); setIsAddingUser(true); setAddUserStatus({ type: "", text: "" });
     try {
@@ -230,8 +257,8 @@ export default function Dashboard({
           setIsScanning(false);
           return;
         }
-      } catch (err) {
-        setUploadStatus({ type: "error", text: `Failed to process ${file.name}.` });
+      } catch (err: any) {
+        setUploadStatus({ type: "error", text: `Server Crash: Could not reach API. Check Vercel Logs.` });
         setIsScanning(false);
         return;
       }
@@ -241,31 +268,60 @@ export default function Dashboard({
     setUploadStatus({ type: "success", text: `Successfully scanned ${results.length} invoice(s). Please review and save.` });
     setIsScanning(false);
 
-    // AUTO SCROLL FEATURE
-    setTimeout(() => {
-      document.getElementById("preview-section")?.scrollIntoView({ behavior: "smooth", block: "start" });
-    }, 200);
+    // Auto-collapse the upload panel to reveal the table!
+    setIsUploadPanelOpen(false);
   };
 
+  // NEW: Smart Upsert Logic to preserve LR Numbers
   const saveInvoicesToDatabase = async () => {
     setIsScanning(true);
-    setUploadStatus({ type: "", text: "Saving to database..." });
+    setUploadStatus({ type: "", text: "Checking database and saving..." });
 
     try {
-      const cleanData = scannedInvoices.map(({ source_file, ...rest }) => rest);
-      const { error } = await supabase.from('invoices').upsert(cleanData);
-      
-      if (error) {
-        setUploadStatus({ type: "error", text: "Database Error: " + error.message });
-      } else {
-        setUploadStatus({ type: "success", text: "Invoices securely saved to the database!" });
-        setSelectedFiles([]);
-        setScannedInvoices([]);
-        if (fileInputRef.current) fileInputRef.current.value = '';
-      }
-    } catch (error) {
-      setUploadStatus({ type: "error", text: "An unexpected error occurred while saving." });
+      const invoiceNos = scannedInvoices.map(inv => inv.invoice_no);
+      const { data: existingInvoices, error: fetchErr } = await supabase
+        .from('invoices')
+        .select('invoice_no, amount, lr_number, lr_date, num_of_cases')
+        .in('invoice_no', invoiceNos);
+
+      if (fetchErr) throw fetchErr;
+
+      const rowsToUpsert = scannedInvoices.map((inv) => {
+        const { source_file, ...rest } = inv;
+        const existing = existingInvoices?.find(e => e.invoice_no === rest.invoice_no);
+
+        if (existing) {
+           rest.lr_number = existing.lr_number;
+           rest.lr_date = existing.lr_date;
+           // Only preserve existing cases if the new PDF didn't find any
+           if (!rest.num_of_cases) rest.num_of_cases = existing.num_of_cases;
+        }
+
+        // Clean payload: strip out explicit nulls so Supabase only updates real data
+        Object.keys(rest).forEach(key => {
+          if (rest[key] === null) {
+            delete rest[key];
+          }
+        });
+        return rest;
+      });
+
+      const { error: upsertErr } = await supabase
+         .from('invoices')
+         .upsert(rowsToUpsert, { onConflict: 'invoice_no' });
+
+      if (upsertErr) throw upsertErr;
+
+      setUploadStatus({ type: "success", text: "Invoices securely saved/updated in the database!" });
+      setSelectedFiles([]);
+      setScannedInvoices([]);
+      setIsUploadPanelOpen(true);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+
+    } catch (error: any) {
+      setUploadStatus({ type: "error", text: "Database Error: " + (error.message || "Unknown error") });
     }
+    
     setIsScanning(false);
   };
 
@@ -292,7 +348,6 @@ export default function Dashboard({
           const workbook = XLSX.read(data, { type: 'binary' });
           const sheetName = workbook.SheetNames[0];
           const sheet = workbook.Sheets[sheetName];
-          
           const jsonData: any[] = XLSX.utils.sheet_to_json(sheet, { raw: false });
 
           if (jsonData.length === 0) {
@@ -302,7 +357,6 @@ export default function Dashboard({
           }
 
           const formattedData: any[] = jsonData.map((row: any) => ({
-            id: undefined, 
             date: row.date || row.Date || row.DATE,
             invoice_no: row.invoice_no || row['Invoice No'] || row.InvoiceNo || row.invoiceno,
             main_account: row.main_account || row['Main Account'] || row.MainAccount,
@@ -324,10 +378,9 @@ export default function Dashboard({
           setExcelStatus({ type: "", text: `Found ${formattedData.length} records. Checking database for duplicates...` });
 
           const invoiceNos = formattedData.map(r => r.invoice_no);
-          
           const { data: existingInvoices, error: fetchErr } = await supabase
             .from('invoices')
-            .select('id, invoice_no, lr_number')
+            .select('invoice_no, lr_number')
             .in('invoice_no', invoiceNos);
 
           if (fetchErr) throw fetchErr;
@@ -337,14 +390,16 @@ export default function Dashboard({
 
           for (const row of formattedData) {
             const existing = existingInvoices?.find(e => e.invoice_no === row.invoice_no);
-
             if (existing) {
               if (existing.lr_number && existing.lr_number.trim() !== '') {
                 skippedCount++;
                 continue;
               }
-              row.id = existing.id;
             }
+            // Strip nulls from Excel payload
+            Object.keys(row).forEach(key => {
+              if (row[key] === null) delete row[key];
+            });
             rowsToUpsert.push(row);
           }
 
@@ -355,9 +410,7 @@ export default function Dashboard({
           }
 
           setExcelStatus({ type: "", text: `Saving ${rowsToUpsert.length} records to database (Skipped ${skippedCount})...` });
-
-          const { error: upsertErr } = await supabase.from('invoices').upsert(rowsToUpsert);
-
+          const { error: upsertErr } = await supabase.from('invoices').upsert(rowsToUpsert, { onConflict: 'invoice_no' });
           if (upsertErr) throw upsertErr;
 
           setExcelStatus({ type: "success", text: `Successfully saved/updated ${rowsToUpsert.length} invoices! (Skipped ${skippedCount})` });
@@ -370,7 +423,6 @@ export default function Dashboard({
           setIsProcessingExcel(false);
         }
       };
-      
       reader.readAsBinaryString(excelFile);
     } catch (err: any) {
       setExcelStatus({ type: "error", text: "Failed to read file." });
@@ -488,82 +540,97 @@ export default function Dashboard({
         {/* FULL SCREEN DYNAMIC VIEWS */}
         <div className="flex-1 flex flex-col p-0 md:p-6 overflow-hidden">
 
-          {/* UPLOAD INVOICES VIEW - SCROLL FIX APPLIED HERE */}
+          {/* UPLOAD INVOICES VIEW - UPDATED WITH SMART COLLAPSE & TABLE DESIGN */}
           {activeView === "upload_invoices" && (
             <div className="flex-1 flex flex-col bg-white md:bg-white/95 md:backdrop-blur-xl rounded-none md:rounded-2xl shadow-none md:shadow-xl border-none md:border md:border-white overflow-hidden animate-fade-in relative">
               
-              {/* THE SCROLL FIX: This ensures you can scroll down to see the table! */}
-              <div className="flex-1 overflow-y-auto pb-12">
+              {/* Added onScroll listener to track up/down scrolling */}
+              <div className="flex-1 overflow-y-auto pb-12" onScroll={handleMainScroll}>
                 
-                <div className="p-5 md:p-6 border-b border-slate-100 bg-white/50 sticky top-0 z-10">
-                  <h2 className="text-xl md:text-2xl font-bold text-slate-900">Upload Invoices</h2>
-                  <p className="text-sm text-slate-500">Add invoices via AI PDF Scan or Bulk Excel Upload.</p>
+                {/* Sticky Header with a manual expand/collapse toggle */}
+                <div className="p-5 md:p-6 border-b border-slate-100 bg-white/70 backdrop-blur-md sticky top-0 z-20 flex justify-between items-center transition-all">
+                  <div>
+                    <h2 className="text-xl md:text-2xl font-bold text-slate-900">Upload Invoices</h2>
+                    <p className="text-sm text-slate-500 hidden md:block">Add invoices via AI PDF Scan or Bulk Excel Upload.</p>
+                  </div>
+                  {scannedInvoices.length > 0 && (
+                    <button 
+                      onClick={() => setIsUploadPanelOpen(!isUploadPanelOpen)}
+                      className="text-xs md:text-sm font-bold text-blue-600 bg-blue-50 px-3 md:px-4 py-2 rounded-lg border border-blue-100 hover:bg-blue-100 transition-colors"
+                    >
+                      {isUploadPanelOpen ? "Hide Scanner" : "Show Scanner"}
+                    </button>
+                  )}
                 </div>
                 
-                <div className="p-6 grid grid-cols-1 lg:grid-cols-2 gap-6 border-b border-slate-100">
-                  {/* 1. PDF UPLOAD CARD */}
-                  <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5 md:p-6 flex flex-col">
-                    <h3 className="text-lg font-bold text-slate-800 mb-1">1. AI PDF Scanner</h3>
-                    <p className="text-xs text-slate-500 mb-5">Select single or multiple PDF invoices. The system matches your company name and extracts data automatically.</p>
+                {/* The smoothly collapsing grid container */}
+                <div className={`transition-all duration-500 origin-top overflow-hidden ${isUploadPanelOpen ? 'max-h-[1200px] opacity-100 scale-y-100' : 'max-h-0 opacity-0 scale-y-0'}`}>
+                  <div className="p-6 grid grid-cols-1 lg:grid-cols-2 gap-6 border-b border-slate-100">
                     
-                    <input 
-                      type="file" 
-                      accept="application/pdf" 
-                      multiple 
-                      ref={fileInputRef}
-                      onChange={handleFileChange}
-                      className="block w-full text-sm text-slate-500 file:mr-4 file:py-2.5 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-bold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 transition-colors mb-4"
-                    />
-                    
-                    <div className="mt-auto pt-2">
-                      <button 
-                        onClick={scanInvoices}
-                        disabled={selectedFiles.length === 0 || isScanning || isProcessingExcel}
-                        className="w-full bg-slate-800 text-white px-6 py-2.5 rounded-xl text-sm font-bold shadow-md hover:bg-slate-900 transition-colors disabled:opacity-50"
-                      >
-                        {isScanning && scannedInvoices.length === 0 ? "Scanning PDFs..." : "Scan PDF Files"}
-                      </button>
-                    </div>
-                    {uploadStatus.text && (
-                      <div className={`mt-4 p-3 rounded-xl text-xs font-semibold border ${uploadStatus.type === "error" ? "bg-red-50 text-red-700 border-red-100" : uploadStatus.type === "success" ? "bg-emerald-50 text-emerald-700 border-emerald-100" : "bg-blue-50 text-blue-700 border-blue-100 animate-pulse"}`}>
-                        {uploadStatus.text}
+                    {/* 1. PDF UPLOAD CARD */}
+                    <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5 md:p-6 flex flex-col">
+                      <h3 className="text-lg font-bold text-slate-800 mb-1">1. AI PDF Scanner</h3>
+                      <p className="text-xs text-slate-500 mb-5">Select single or multiple PDF invoices. The system matches your company name and extracts data automatically.</p>
+                      
+                      <input 
+                        type="file" 
+                        accept="application/pdf" 
+                        multiple 
+                        ref={fileInputRef}
+                        onChange={handleFileChange}
+                        className="block w-full text-sm text-slate-500 file:mr-4 file:py-2.5 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-bold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 transition-colors mb-4"
+                      />
+                      
+                      <div className="mt-auto pt-2">
+                        <button 
+                          onClick={scanInvoices}
+                          disabled={selectedFiles.length === 0 || isScanning || isProcessingExcel}
+                          className="w-full bg-slate-800 text-white px-6 py-2.5 rounded-xl text-sm font-bold shadow-md hover:bg-slate-900 transition-colors disabled:opacity-50"
+                        >
+                          {isScanning && scannedInvoices.length === 0 ? "Scanning PDFs..." : "Scan PDF Files"}
+                        </button>
                       </div>
-                    )}
-                  </div>
+                      {uploadStatus.text && (
+                        <div className={`mt-4 p-3 rounded-xl text-xs font-semibold border ${uploadStatus.type === "error" ? "bg-red-50 text-red-700 border-red-100" : uploadStatus.type === "success" ? "bg-emerald-50 text-emerald-700 border-emerald-100" : "bg-blue-50 text-blue-700 border-blue-100 animate-pulse"}`}>
+                          {uploadStatus.text}
+                        </div>
+                      )}
+                    </div>
 
-                  {/* 2. EXCEL BULK UPLOAD CARD */}
-                  <div className="bg-emerald-50/50 border border-emerald-100 rounded-2xl p-5 md:p-6 flex flex-col">
-                    <h3 className="text-lg font-bold text-emerald-800 mb-1">2. Bulk Excel Sync</h3>
-                    <p className="text-xs text-emerald-600/80 mb-5">Upload an Excel/CSV file containing Columns: <span className="font-bold text-emerald-700">Invoice No, Date, Main Account, Sub Account, Num of Cases, Packing Type, Amount, Transport, LR Number, LR Date</span>.</p>
-                    
-                    <input 
-                      type="file" 
-                      accept=".csv, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel"
-                      ref={excelInputRef}
-                      onChange={handleExcelFileChange}
-                      className="block w-full text-sm text-emerald-700 file:mr-4 file:py-2.5 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-bold file:bg-emerald-100 file:text-emerald-800 hover:file:bg-emerald-200 transition-colors mb-4"
-                    />
-                    
-                    <div className="mt-auto pt-2">
-                      <button 
-                        onClick={processExcelUpload}
-                        disabled={!excelFile || isProcessingExcel || isScanning}
-                        className="w-full bg-emerald-600 text-white px-6 py-2.5 rounded-xl text-sm font-bold shadow-md hover:bg-emerald-700 transition-colors disabled:opacity-50"
-                      >
-                        {isProcessingExcel ? "Processing Spreadsheet..." : "Upload & Sync Database"}
-                      </button>
-                    </div>
-                    {excelStatus.text && (
-                      <div className={`mt-4 p-3 rounded-xl text-xs font-semibold border ${excelStatus.type === "error" ? "bg-red-50 text-red-700 border-red-100" : excelStatus.type === "success" ? "bg-emerald-50 text-emerald-700 border-emerald-100" : "bg-emerald-100 text-emerald-800 border-emerald-200 animate-pulse"}`}>
-                        {excelStatus.text}
+                    {/* 2. EXCEL BULK UPLOAD CARD */}
+                    <div className="bg-emerald-50/50 border border-emerald-100 rounded-2xl p-5 md:p-6 flex flex-col">
+                      <h3 className="text-lg font-bold text-emerald-800 mb-1">2. Bulk Excel Sync</h3>
+                      <p className="text-xs text-emerald-600/80 mb-5">Upload an Excel/CSV file containing Columns: <span className="font-bold text-emerald-700">Invoice No, Date, Main Account, Sub Account, Num of Cases, Packing Type, Amount, Transport, LR Number, LR Date</span>.</p>
+                      
+                      <input 
+                        type="file" 
+                        accept=".csv, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel"
+                        ref={excelInputRef}
+                        onChange={handleExcelFileChange}
+                        className="block w-full text-sm text-emerald-700 file:mr-4 file:py-2.5 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-bold file:bg-emerald-100 file:text-emerald-800 hover:file:bg-emerald-200 transition-colors mb-4"
+                      />
+                      
+                      <div className="mt-auto pt-2">
+                        <button 
+                          onClick={processExcelUpload}
+                          disabled={!excelFile || isProcessingExcel || isScanning}
+                          className="w-full bg-emerald-600 text-white px-6 py-2.5 rounded-xl text-sm font-bold shadow-md hover:bg-emerald-700 transition-colors disabled:opacity-50"
+                        >
+                          {isProcessingExcel ? "Processing Spreadsheet..." : "Upload & Sync Database"}
+                        </button>
                       </div>
-                    )}
+                      {excelStatus.text && (
+                        <div className={`mt-4 p-3 rounded-xl text-xs font-semibold border ${excelStatus.type === "error" ? "bg-red-50 text-red-700 border-red-100" : excelStatus.type === "success" ? "bg-emerald-50 text-emerald-700 border-emerald-100" : "bg-emerald-100 text-emerald-800 border-emerald-200 animate-pulse"}`}>
+                          {excelStatus.text}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
 
-                {/* PDF SCANNED INVOICES PREVIEW - Anchored with an ID so we can auto-scroll to it */}
+                {/* PDF SCANNED INVOICES PREVIEW */}
                 {scannedInvoices.length > 0 && (
-                  <div id="preview-section" className="p-6 bg-slate-50/50 min-h-[400px]">
+                  <div id="preview-section" className="p-6 bg-slate-50/50 min-h-[600px]">
                     <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
                       <div>
                         <h3 className="text-xl font-bold text-slate-800">Scanned Results Preview</h3>
@@ -579,15 +646,16 @@ export default function Dashboard({
                     </div>
                     
                     <div className="overflow-x-auto border border-slate-200 rounded-xl bg-white shadow-sm">
-                      <table className="w-full text-left border-collapse min-w-[1000px]">
+                      <table className="w-full text-left border-collapse min-w-[1100px]">
                         <thead className="bg-slate-100 border-b border-slate-200">
                           <tr className="text-slate-600 text-xs uppercase tracking-wider font-bold">
-                            <th className="p-4 pl-6">File Name</th>
-                            <th className="p-4">Inv No</th>
-                            <th className="p-4">Date</th>
-                            <th className="p-4">Account</th>
-                            <th className="p-4">Amount</th>
-                            <th className="p-4">Transport</th>
+                            <th className="p-4 pl-6 w-[15%]">File Name</th>
+                            <th className="p-4 w-[10%]">Inv No</th>
+                            <th className="p-4 w-[10%]">Date</th>
+                            <th className="p-4 w-[25%]">Account</th>
+                            <th className="p-4 w-[10%]">Cases</th>
+                            <th className="p-4 w-[10%]">Amount</th>
+                            <th className="p-4 w-[20%]">Transport</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100 bg-white">
@@ -595,18 +663,31 @@ export default function Dashboard({
                             <tr key={idx} className="hover:bg-slate-50 transition-colors">
                               <td className="p-4 pl-6 text-sm font-medium text-slate-500 truncate max-w-[150px]">{inv.source_file}</td>
                               <td className="p-4 text-sm font-bold text-slate-900">{inv.invoice_no}</td>
-                              <td className="p-4 text-sm text-slate-600">{inv.date}</td>
-                              <td className="p-4 text-sm font-semibold text-slate-700">
+                              
+                              <td className="p-4 text-sm text-slate-600 font-mono tracking-tight">{formatDisplayDate(inv.date)}</td>
+                              
+                              <td className="p-4 text-sm text-slate-700">
                                 {inv.sub_account ? (
-                                <>
-                                <span className="font-bold text-slate-900">{inv.sub_account}</span>
-                                <span className="text-slate-400 font-normal mx-1">c/o</span>
-                                <span>{inv.main_account}</span>
-                                </>
+                                  <>
+                                    <span className="font-bold text-slate-900 block md:inline">{inv.sub_account}</span>
+                                    <span className="text-slate-400 font-normal mx-1 hidden md:inline">c/o</span>
+                                    <span className="block md:inline text-xs md:text-sm font-semibold">{inv.main_account}</span>
+                                  </>
                                 ) : (
-                                inv.main_account
-                              )}
+                                  <span className="font-semibold text-slate-900">{inv.main_account}</span>
+                                )}
                               </td>
+                              
+                              <td className="p-4 text-sm">
+                                {inv.num_of_cases ? (
+                                  <span className="font-bold text-indigo-700 bg-indigo-50 px-2 py-1 rounded-md border border-indigo-100">
+                                    {inv.num_of_cases} {inv.packing_type}
+                                  </span>
+                                ) : (
+                                  <span className="text-slate-300">—</span>
+                                )}
+                              </td>
+
                               <td className="p-4 text-sm font-bold text-emerald-600">₹{inv.amount}</td>
                               <td className="p-4 text-sm text-slate-600">{inv.transport}</td>
                             </tr>
@@ -710,7 +791,7 @@ export default function Dashboard({
           )}
         </div>
 
-        {/* RESPONSIVE MODAL OVERLAY FOR ADD USER */}
+        {/* MODALS */}
         {isAddUserOpen && (
           <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm md:p-6 transition-all duration-300" onClick={closeAddUserModal}>
             <div className="bg-white md:bg-white/95 md:backdrop-blur-xl w-full h-full md:h-auto md:max-w-md md:rounded-2xl shadow-2xl flex flex-col overflow-y-auto" onClick={(e) => e.stopPropagation()}>
@@ -736,7 +817,6 @@ export default function Dashboard({
           </div>
         )}
 
-        {/* RESPONSIVE MODAL OVERLAY FOR EDIT USER */}
         {isEditUserOpen && (
           <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm md:p-6 transition-all duration-300" onClick={closeEditUserModal}>
             <div className="bg-white md:bg-white/95 md:backdrop-blur-xl w-full h-full md:h-auto md:max-w-md md:rounded-2xl shadow-2xl flex flex-col overflow-y-auto" onClick={(e) => e.stopPropagation()}>
@@ -765,7 +845,6 @@ export default function Dashboard({
           </div>
         )}
 
-        {/* RESPONSIVE MODAL OVERLAY FOR COMPANY SETTINGS */}
         {activeView === "settings_company" && (
           <div className="absolute inset-0 z-40 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm md:p-6 transition-all duration-300" onClick={closeCompanySettings}>
             <div className="bg-white md:bg-white/95 md:backdrop-blur-xl w-full h-full md:h-auto md:max-w-xl md:rounded-2xl shadow-2xl flex flex-col overflow-y-auto animate-fade-in" onClick={(e) => e.stopPropagation()}>
