@@ -1,13 +1,25 @@
 import { NextResponse } from 'next/server';
 
-// 1. FIXED: Moved to the very top so Vercel's bundler detects it and includes it in the live server!
+// --- VERCEL SERVER POLYFILLS ---
+// The PDF parser expects a web browser environment. We must create dummy versions
+// of these browser objects so Vercel's Node.js server doesn't crash during the build.
+if (typeof global.DOMMatrix === 'undefined') {
+  (global as any).DOMMatrix = class DOMMatrix {};
+}
+if (typeof global.ImageData === 'undefined') {
+  (global as any).ImageData = class ImageData {};
+}
+if (typeof global.Path2D === 'undefined') {
+  (global as any).Path2D = class Path2D {};
+}
+
+// Now we can safely load the library without it crashing the Vercel build
 const pdfParse = require('pdf-parse');
 
 export async function POST(req: Request) {
   try {
     const formData = await req.formData();
     const file = formData.get('file') as File;
-    // 2. FIXED: Safe extraction of the company name to prevent null crashes
     const expectedCompany = (formData.get('company_name') as string) || "";
 
     if (!file) {
@@ -22,15 +34,14 @@ export async function POST(req: Request) {
     const data = await pdfParse(buffer);
     const pdfText = data.text || "";
 
-    // 3. VERIFY COMPANY NAME
-    // Checks if "ANEJA KNITTING WORKS" (or your settings name) exists in the PDF
+    // VERIFY COMPANY NAME
     if (expectedCompany && !pdfText.toLowerCase().includes(expectedCompany.toLowerCase())) {
       return NextResponse.json({ 
         error: `Company Match Failed: Could not find '${expectedCompany}' in this document. Please check your App Settings.` 
       }, { status: 400 });
     }
 
-    // 4. EXTRACT DATA (Simulated parsing placeholders)
+    // EXTRACT DATA (Simulated parsing placeholders)
     const invoiceData = {
       date: new Date().toISOString().split('T')[0], 
       invoice_no: "INV-" + Math.floor(Math.random() * 90000 + 10000),
@@ -48,7 +59,6 @@ export async function POST(req: Request) {
 
   } catch (error: any) {
     console.error("PDF Parsing Error:", error);
-    // 5. FIXED: Now returns the exact technical error to your screen instead of a generic message
     return NextResponse.json({ 
       error: error.message || "Failed to process the PDF document." 
     }, { status: 500 });
