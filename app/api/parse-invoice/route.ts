@@ -25,7 +25,6 @@ export async function POST(req: Request) {
     const arrayBuffer = await file.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
     
-    // Initialize the class and extract the text
     const parser = new PDFParse({ data: buffer });
     const data = await parser.getText();
     const pdfText = data.text || "";
@@ -34,7 +33,6 @@ export async function POST(req: Request) {
       await parser.destroy();
     }
 
-    // VERIFY COMPANY NAME
     if (expectedCompany && !pdfText.toLowerCase().includes(expectedCompany.toLowerCase())) {
       return NextResponse.json({ 
         error: `Company Match Failed: Could not find '${expectedCompany}' in this document. Please check your App Settings.` 
@@ -42,35 +40,35 @@ export async function POST(req: Request) {
     }
 
     // ==========================================
-    // HYPER-PRECISE DATA EXTRACTION
+    // THE ULTIMATE WILDCARD REGEX EXTRACTION
     // ==========================================
     
     // 1. Extract Invoice Number
-    // [^\w]* skips any random spaces or dots between "Bill No" and the actual alphanumeric ID
-    const invoiceNoMatch = pdfText.match(/Bill No\.[^\w]*([A-Z0-9\/\-]+)/i);
-    const invoiceNo = invoiceNoMatch ? invoiceNoMatch[1].trim() : "UNKNOWN";
+    // Looks for "Bill No", ignores random dots/spaces, grabs the alphanumeric ID
+    const invoiceNoMatch = pdfText.match(/Bill\s*No[\.\s]*([A-Za-z0-9\/\-]+)/i);
+    const invoiceNo = invoiceNoMatch ? invoiceNoMatch[1].replace(/"/g, '').trim() : "UNKNOWN";
 
     // 2. Extract Date
-    // [^\d]* skips any hidden line breaks or spaces until it hits the exact DD/MM/YYYY format
-    const dateMatch = pdfText.match(/Dated[^\d]*(\d{2}\/\d{2}\/\d{4})/i);
-    let formattedDate = new Date().toISOString().split('T')[0]; // Default to today
+    // [\s\S]*? jumps across the hard line break to find the exact DD/MM/YYYY
+    const dateMatch = pdfText.match(/Dated[\s\S]*?(\d{2}\/\d{2}\/\d{4})/i);
+    let formattedDate = new Date().toISOString().split('T')[0];
     if (dateMatch && dateMatch[1]) {
       const [day, month, year] = dateMatch[1].split('/');
       formattedDate = `${year}-${month}-${day}`;
     }
 
     // 3. Extract Customer Name (Main Account)
-    // [^"\r\n]+ grabs everything until the line ends or it hits a hidden quote mark
-    const customerMatch = pdfText.match(/M\/S\s+([^"\r\n]+)/i);
-    const mainAccount = customerMatch ? customerMatch[1].trim() : "Unknown Customer";
+    const customerMatch = pdfText.match(/M\/S\s+([^\r\n]+)/i);
+    const mainAccount = customerMatch ? customerMatch[1].replace(/"/g, '').trim() : "Unknown Customer";
 
     // 4. Extract Transport
-    const transportMatch = pdfText.match(/Transport:+\s*([^"\r\n]+)/i);
-    const transport = transportMatch ? transportMatch[1].trim() : null;
+    // Looks for "Transport", ignores the double colons and spaces
+    const transportMatch = pdfText.match(/Transport:+\s*([^\r\n]+)/i);
+    const transport = transportMatch ? transportMatch[1].replace(/"/g, '').trim() : "Unknown Transport";
 
     // 5. Extract Grand Total Amount 
-    // [^\d]* ignores the " (Rs.)" text, newlines, and quotes, jumping straight to the exact decimal value
-    const amountMatch = pdfText.match(/Grand Total[^\d]*([\d,]+\.\d{2})/i);
+    // [\s\S]*? jumps across the '","' and the newlines to grab the exact decimal
+    const amountMatch = pdfText.match(/Grand Total[\s\S]*?([\d,]+\.\d{2})/i);
     let amountVal = 0;
     if (amountMatch && amountMatch[1]) {
       amountVal = parseFloat(amountMatch[1].replace(/,/g, ''));
