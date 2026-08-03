@@ -64,8 +64,6 @@ export default function Dashboard({
   const [isScanning, setIsScanning] = useState(false);
   const [scannedInvoices, setScannedInvoices] = useState<any[]>([]);
   const [uploadStatus, setUploadStatus] = useState({ type: "", text: "" });
-  
-  // NEW: State to control the collapsing upload panel
   const [isUploadPanelOpen, setIsUploadPanelOpen] = useState(true);
 
   // Invoice Upload States (Excel)
@@ -156,7 +154,11 @@ export default function Dashboard({
     );
   });
 
-  // NEW: Date Formatter helper
+  // ------------------------------------------
+  // DISPLAY FORMATTER HELPERS
+  // ------------------------------------------
+
+  // 1. Format Date to DD/MM/YYYY
   const formatDisplayDate = (dbDate: string) => {
     if (!dbDate) return "";
     const parts = dbDate.split('-');
@@ -164,7 +166,23 @@ export default function Dashboard({
     return dbDate;
   };
 
-  // NEW: Smart Scroll handler to auto-collapse/expand the header
+  // 2. Format Invoice Number (Extracts only the final digits after the last slash)
+  const formatDisplayInvoiceNo = (invNo: string) => {
+    if (!invNo) return "";
+    if (invNo.includes('/')) {
+      const parts = invNo.split('/');
+      return parts[parts.length - 1]; // Grabs the '1515' from 'TI/26-27/1515'
+    }
+    return invNo;
+  };
+
+  // 3. Format Amount to Indian Currency Style (e.g., 2,25,887)
+  const formatIndianAmount = (amount: number) => {
+    if (amount === null || amount === undefined) return "0";
+    return new Intl.NumberFormat('en-IN', { maximumFractionDigits: 2 }).format(amount);
+  };
+
+  // Smart Scroll handler to auto-collapse/expand the header
   const handleMainScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const scrollTop = e.currentTarget.scrollTop;
     if (scrollTop < 20 && !isUploadPanelOpen) {
@@ -267,12 +285,9 @@ export default function Dashboard({
     setScannedInvoices(results);
     setUploadStatus({ type: "success", text: `Successfully scanned ${results.length} invoice(s). Please review and save.` });
     setIsScanning(false);
-
-    // Auto-collapse the upload panel to reveal the table!
-    setIsUploadPanelOpen(false);
+    setIsUploadPanelOpen(false); // Auto collapse
   };
 
-  // NEW: Smart Upsert Logic to preserve LR Numbers
   const saveInvoicesToDatabase = async () => {
     setIsScanning(true);
     setUploadStatus({ type: "", text: "Checking database and saving..." });
@@ -293,11 +308,9 @@ export default function Dashboard({
         if (existing) {
            rest.lr_number = existing.lr_number;
            rest.lr_date = existing.lr_date;
-           // Only preserve existing cases if the new PDF didn't find any
            if (!rest.num_of_cases) rest.num_of_cases = existing.num_of_cases;
         }
 
-        // Clean payload: strip out explicit nulls so Supabase only updates real data
         Object.keys(rest).forEach(key => {
           if (rest[key] === null) {
             delete rest[key];
@@ -396,7 +409,6 @@ export default function Dashboard({
                 continue;
               }
             }
-            // Strip nulls from Excel payload
             Object.keys(row).forEach(key => {
               if (row[key] === null) delete row[key];
             });
@@ -544,10 +556,9 @@ export default function Dashboard({
           {activeView === "upload_invoices" && (
             <div className="flex-1 flex flex-col bg-white md:bg-white/95 md:backdrop-blur-xl rounded-none md:rounded-2xl shadow-none md:shadow-xl border-none md:border md:border-white overflow-hidden animate-fade-in relative">
               
-              {/* Added onScroll listener to track up/down scrolling */}
               <div className="flex-1 overflow-y-auto pb-12" onScroll={handleMainScroll}>
                 
-                {/* Sticky Header with a manual expand/collapse toggle */}
+                {/* Sticky Header with manual expand/collapse toggle */}
                 <div className="p-5 md:p-6 border-b border-slate-100 bg-white/70 backdrop-blur-md sticky top-0 z-20 flex justify-between items-center transition-all">
                   <div>
                     <h2 className="text-xl md:text-2xl font-bold text-slate-900">Upload Invoices</h2>
@@ -662,7 +673,9 @@ export default function Dashboard({
                           {scannedInvoices.map((inv, idx) => (
                             <tr key={idx} className="hover:bg-slate-50 transition-colors">
                               <td className="p-4 pl-6 text-sm font-medium text-slate-500 truncate max-w-[150px]">{inv.source_file}</td>
-                              <td className="p-4 text-sm font-bold text-slate-900">{inv.invoice_no}</td>
+                              
+                              {/* UPDATED: Formatted Invoice Number (Displays only the last segment) */}
+                              <td className="p-4 text-sm font-bold text-slate-900">{formatDisplayInvoiceNo(inv.invoice_no)}</td>
                               
                               <td className="p-4 text-sm text-slate-600 font-mono tracking-tight">{formatDisplayDate(inv.date)}</td>
                               
@@ -688,7 +701,9 @@ export default function Dashboard({
                                 )}
                               </td>
 
-                              <td className="p-4 text-sm font-bold text-emerald-600">₹{inv.amount}</td>
+                              {/* UPDATED: Formatted Indian Currency Amount */}
+                              <td className="p-4 text-sm font-bold text-emerald-600">₹{formatIndianAmount(inv.amount)}</td>
+                              
                               <td className="p-4 text-sm text-slate-600">{inv.transport}</td>
                             </tr>
                           ))}
