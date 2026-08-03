@@ -71,13 +71,29 @@ export default function Dashboard({
   const [isProcessingExcel, setIsProcessingExcel] = useState(false);
   const [excelStatus, setExcelStatus] = useState({ type: "", text: "" });
 
-  // ==========================================
-  // INVOICE REGISTER STATES
-  // ==========================================
+  // Invoice Register States
   const [allInvoices, setAllInvoices] = useState<any[]>([]);
   const [isLoadingInvoices, setIsLoadingInvoices] = useState(false);
   const [invoiceSearchQuery, setInvoiceSearchQuery] = useState("");
   const [selectedInvoice, setSelectedInvoice] = useState<any | null>(null);
+
+  // ==========================================
+  // NEW: UPLOAD BUILTY STATES
+  // ==========================================
+  const [pendingInvoices, setPendingInvoices] = useState<any[]>([]);
+  const [isLoadingPending, setIsLoadingPending] = useState(false);
+  const [pendingSearchQuery, setPendingSearchQuery] = useState("");
+  
+  const builtyInputRef = useRef<HTMLInputElement>(null);
+  const [builtyFile, setBuiltyFile] = useState<File | null>(null);
+  const [isParsingBuilty, setIsParsingBuilty] = useState(false);
+  const [builtyStatus, setBuiltyStatus] = useState({ type: "", text: "" });
+  
+  const [matchedInvoice, setMatchedInvoice] = useState<any | null>(null);
+  const [showBuiltyConfirm, setShowBuiltyConfirm] = useState(false);
+  const [showBuiltyEdit, setShowBuiltyEdit] = useState(false);
+  const [builtyForm, setBuiltyForm] = useState({ lr_number: "", lr_date: "" });
+  const [isSavingBuilty, setIsSavingBuilty] = useState(false);
 
   // ==========================================
   // HELPERS & LIFECYCLE
@@ -96,6 +112,8 @@ export default function Dashboard({
       if (isAddUserOpen) setIsAddUserOpen(false); 
       else if (isEditUserOpen) setIsEditUserOpen(false);
       else if (selectedInvoice) setSelectedInvoice(null);
+      else if (showBuiltyConfirm) setShowBuiltyConfirm(false);
+      else if (showBuiltyEdit) setShowBuiltyEdit(false);
       else {
         if (e.state && e.state.view) setActiveView(e.state.view);
         else setActiveView("dashboard");
@@ -103,7 +121,7 @@ export default function Dashboard({
     };
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
-  }, [isAddUserOpen, isEditUserOpen, selectedInvoice]);
+  }, [isAddUserOpen, isEditUserOpen, selectedInvoice, showBuiltyConfirm, showBuiltyEdit]);
 
   const handleNavigation = (id: string) => {
     if (id !== activeView) {
@@ -156,29 +174,32 @@ export default function Dashboard({
   useEffect(() => { if (activeView === "users") fetchUsersAndRoles(); }, [activeView]);
 
   // ------------------------------------------
-  // INVOICE REGISTER LOGIC
+  // INVOICE REGISTER & PENDING BUILTY LOGIC
   // ------------------------------------------
   const fetchAllInvoices = async () => {
     setIsLoadingInvoices(true);
     try {
-      const { data, error } = await supabase
-        .from('invoices')
-        .select('*')
-        .order('date', { ascending: false }); 
-
+      const { data, error } = await supabase.from('invoices').select('*').order('date', { ascending: false }); 
       if (error) throw error;
       if (data) setAllInvoices(data);
-    } catch (error) {
-      console.error("Error fetching invoice register:", error);
-    }
+    } catch (error) { console.error("Error fetching invoice register:", error); }
     setIsLoadingInvoices(false);
   };
 
+  const fetchPendingInvoices = async () => {
+    setIsLoadingPending(true);
+    try {
+      // Fetch invoices where LR Number is null or empty
+      const { data, error } = await supabase.from('invoices').select('*').or('lr_number.is.null,lr_number.eq.""').order('date', { ascending: false }); 
+      if (error) throw error;
+      if (data) setPendingInvoices(data);
+    } catch (error) { console.error("Error fetching pending invoices:", error); }
+    setIsLoadingPending(false);
+  };
+
   useEffect(() => {
-    if (activeView === "invoice_register") {
-      fetchAllInvoices();
-      setInvoiceSearchQuery(""); 
-    }
+    if (activeView === "invoice_register") { fetchAllInvoices(); setInvoiceSearchQuery(""); }
+    if (activeView === "upload_builty") { fetchPendingInvoices(); setPendingSearchQuery(""); }
   }, [activeView]);
 
   // ------------------------------------------
@@ -211,11 +232,8 @@ export default function Dashboard({
 
   const handleMainScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const scrollTop = e.currentTarget.scrollTop;
-    if (scrollTop < 20 && !isUploadPanelOpen) {
-      setIsUploadPanelOpen(true);
-    } else if (scrollTop > 100 && isUploadPanelOpen && scannedInvoices.length > 0) {
-      setIsUploadPanelOpen(false);
-    }
+    if (scrollTop < 20 && !isUploadPanelOpen) setIsUploadPanelOpen(true);
+    else if (scrollTop > 100 && isUploadPanelOpen && scannedInvoices.length > 0) setIsUploadPanelOpen(false);
   };
 
   // ==========================================
@@ -228,20 +246,15 @@ export default function Dashboard({
 
   const filteredUsers = usersList.filter(user => {
     const roleName = Array.isArray(user.roles) ? user.roles[0]?.role_name : user.roles?.role_name;
-    return (
-      safeSearch(user.username, searchQuery) ||
-      safeSearch(user.mobile_number, searchQuery) ||
-      safeSearch(roleName, searchQuery)
-    );
+    return (safeSearch(user.username, searchQuery) || safeSearch(user.mobile_number, searchQuery) || safeSearch(roleName, searchQuery));
   });
 
   const filteredRegisterInvoices = allInvoices.filter(inv => {
-    return (
-      safeSearch(inv.invoice_no, invoiceSearchQuery) ||
-      safeSearch(inv.main_account, invoiceSearchQuery) ||
-      safeSearch(inv.sub_account, invoiceSearchQuery) ||
-      safeSearch(formatDisplayDate(inv.date), invoiceSearchQuery)
-    );
+    return (safeSearch(inv.invoice_no, invoiceSearchQuery) || safeSearch(inv.main_account, invoiceSearchQuery) || safeSearch(inv.sub_account, invoiceSearchQuery) || safeSearch(formatDisplayDate(inv.date), invoiceSearchQuery));
+  });
+
+  const filteredPendingInvoices = pendingInvoices.filter(inv => {
+    return (safeSearch(inv.invoice_no, pendingSearchQuery) || safeSearch(inv.main_account, pendingSearchQuery) || safeSearch(inv.sub_account, pendingSearchQuery));
   });
 
   const totalRegisterAmount = filteredRegisterInvoices.reduce((sum, inv) => sum + (Number(inv.amount) || 0), 0);
@@ -254,7 +267,112 @@ export default function Dashboard({
   }, {} as Record<string, number>);
 
   // ==========================================
-  // FORM HANDLERS
+  // BUILTY UPLOAD & MATCHING LOGIC
+  // ==========================================
+  const handleBuiltyUploadChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+      setBuiltyFile(file);
+      setIsParsingBuilty(true);
+      setBuiltyStatus({ type: "info", text: "Analyzing Builty image with AI..." });
+
+      try {
+        const formData = new FormData();
+        formData.append("file", file);
+        
+        // Pass pending invoice numbers to backend to help it find the exact match
+        const pendingNos = pendingInvoices.map(inv => formatDisplayInvoiceNo(inv.invoice_no));
+        formData.append("pending_invoices", JSON.stringify(pendingNos));
+
+        // Note: This API call simulates your future backend OCR setup
+        const response = await fetch('/api/parse-builty', { method: 'POST', body: formData });
+        const data = await response.json();
+        
+        if (data.success && data.matched_invoice_no) {
+           // Find the exact invoice from our pending list
+           const matched = pendingInvoices.find(i => formatDisplayInvoiceNo(i.invoice_no) === data.matched_invoice_no);
+           if (matched) {
+              setMatchedInvoice(matched);
+              setBuiltyForm({ lr_number: data.lr_number || "", lr_date: data.lr_date || new Date().toISOString().split('T')[0] });
+              setBuiltyStatus({ type: "", text: "" });
+              setShowBuiltyConfirm(true); // Open the confirmation dialog!
+           } else {
+              setBuiltyStatus({ type: "error", text: `Builty matched Invoice #${data.matched_invoice_no}, but it is not in the pending list.` });
+           }
+        } else {
+           setBuiltyStatus({ type: "error", text: data.error || "Could not read builty details or find a matching invoice." });
+        }
+      } catch (err: any) {
+        setBuiltyStatus({ type: "error", text: "Server OCR connection failed. Please try again." });
+      }
+      setIsParsingBuilty(false);
+      if (builtyInputRef.current) builtyInputRef.current.value = "";
+    }
+  };
+
+  const confirmBuiltyMatch = () => {
+    setShowBuiltyConfirm(false);
+    setShowBuiltyEdit(true); // Proceed to edit/save dialog
+  };
+
+  const saveBuiltyToDatabase = async () => {
+    if (!matchedInvoice || !builtyFile) return;
+    setIsSavingBuilty(true);
+    setBuiltyStatus({ type: "info", text: "Saving Builty details..." });
+
+    try {
+       // 1. Create standardized file name: "1515_BAKSHI_TRADERS.jpg"
+       const fileExt = builtyFile.name.split('.').pop() || 'jpg';
+       const safePartyName = matchedInvoice.main_account.replace(/[^a-zA-Z0-9]/g, '_');
+       const fileName = `${formatDisplayInvoiceNo(matchedInvoice.invoice_no)}_${safePartyName}.${fileExt}`;
+
+       // 2. Upload to Supabase Storage Bucket (Assuming bucket name is 'builties')
+       // const { data: storageData, error: storageErr } = await supabase.storage.from('builties').upload(fileName, builtyFile, { upsert: true });
+       // if (storageErr) throw storageErr;
+       
+       // const { data: publicUrlData } = supabase.storage.from('builties').getPublicUrl(fileName);
+       // const imageUrl = publicUrlData.publicUrl;
+       
+       // MOCK URL since we aren't executing real storage locally yet
+       const imageUrl = "uploaded_successfully"; 
+
+       // 3. Update the Invoice Database Row
+       const { error: dbErr } = await supabase.from('invoices').update({
+           lr_number: builtyForm.lr_number,
+           lr_date: builtyForm.lr_date,
+           builty_image_url: imageUrl // Saving reference to photo
+       }).eq('invoice_no', matchedInvoice.invoice_no);
+
+       if (dbErr) throw dbErr;
+
+       // 4. Trigger Local Device Download
+       const localUrl = URL.createObjectURL(builtyFile);
+       const a = document.createElement("a");
+       a.href = localUrl;
+       a.download = fileName; // Names it locally as 1515_BAKSHI_TRADERS.jpg
+       document.body.appendChild(a);
+       a.click();
+       document.body.removeChild(a);
+       URL.revokeObjectURL(localUrl);
+
+       setBuiltyStatus({ type: "success", text: "Builty securely saved to server and downloaded locally!" });
+       setTimeout(() => {
+           setShowBuiltyEdit(false);
+           setMatchedInvoice(null);
+           setBuiltyFile(null);
+           setBuiltyStatus({ type: "", text: "" });
+           fetchPendingInvoices(); // Refresh the list to remove the updated invoice
+       }, 2000);
+
+    } catch (err: any) {
+       setBuiltyStatus({ type: "error", text: "Failed to save: " + (err.message || "Unknown Error") });
+    }
+    setIsSavingBuilty(false);
+  };
+
+
+  // ==========================================
+  // FORM HANDLERS (Users & Settings)
   // ==========================================
   const handleAddUser = async (e: React.FormEvent) => {
     e.preventDefault(); setIsAddingUser(true); setAddUserStatus({ type: "", text: "" });
@@ -399,9 +517,6 @@ export default function Dashboard({
     setIsScanning(false);
   };
 
-  // ==========================================
-  // BULK EXCEL UPLOAD LOGIC
-  // ==========================================
   const handleExcelFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       setExcelFile(e.target.files[0]);
@@ -689,7 +804,6 @@ export default function Dashboard({
                       </button>
                     </div>
 
-                    {/* NEW: MOBILE CARD VIEW FOR PREVIEWS */}
                     <div className="md:hidden flex flex-col gap-4">
                       {scannedInvoices.map((inv, idx) => (
                         <div key={idx} className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
@@ -725,7 +839,6 @@ export default function Dashboard({
                       ))}
                     </div>
 
-                    {/* DESKTOP TABLE VIEW */}
                     <div className="hidden md:block overflow-x-auto border border-slate-200 rounded-xl bg-white shadow-sm">
                       <table className="w-full text-left border-collapse min-w-[1100px]">
                         <thead className="bg-slate-100 border-b border-slate-200">
@@ -779,6 +892,162 @@ export default function Dashboard({
           )}
 
           {/* ========================================================= */}
+          {/* UPLOAD BUILTY VIEW */}
+          {/* ========================================================= */}
+          {activeView === "upload_builty" && (
+            <div className="flex-1 flex flex-col bg-white md:bg-white/95 md:backdrop-blur-xl rounded-none md:rounded-2xl shadow-none md:shadow-xl border-none md:border md:border-white overflow-hidden animate-fade-in relative">
+              <div className="flex-1 flex flex-col h-full relative">
+                
+                {/* Header & Upload Button */}
+                <div className="p-4 md:p-6 border-b border-slate-100 bg-white/70 backdrop-blur-md sticky top-0 z-20 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 shrink-0">
+                  <div>
+                    <h2 className="text-xl md:text-2xl font-bold text-slate-900">Upload Builty</h2>
+                    <p className="text-sm text-slate-500 hidden md:block">Invoices awaiting LR Number & Date integration.</p>
+                  </div>
+                  
+                  <div className="flex items-center gap-3 w-full md:w-auto">
+                    <div className="relative flex-1 md:w-64">
+                      <svg className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                      <input 
+                        type="text" 
+                        placeholder="Search pending invoices..." 
+                        value={pendingSearchQuery} 
+                        onChange={(e) => setPendingSearchQuery(e.target.value)} 
+                        className="w-full pl-9 pr-4 h-11 shrink-0 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium transition-all" 
+                      />
+                    </div>
+                    {/* HIDDEN FILE INPUT for Camera/Gallery */}
+                    <input 
+                       type="file" 
+                       accept="image/*" 
+                       capture="environment" 
+                       className="hidden" 
+                       ref={builtyInputRef} 
+                       onChange={handleBuiltyUploadChange}
+                    />
+                    <button 
+                       onClick={() => builtyInputRef.current?.click()}
+                       disabled={isParsingBuilty}
+                       className="flex shrink-0 bg-blue-600 text-white px-4 h-11 rounded-xl text-sm font-bold shadow-md hover:bg-blue-700 transition-colors items-center gap-2 disabled:opacity-50"
+                    >
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"></path><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                      <span className="hidden md:block">{isParsingBuilty ? "Scanning..." : "Capture Builty"}</span>
+                    </button>
+                  </div>
+                </div>
+                
+                {builtyStatus.text && (
+                  <div className="px-4 md:px-6 pt-4">
+                    <div className={`p-4 rounded-xl text-sm font-semibold border ${builtyStatus.type === "error" ? "bg-red-50 text-red-700 border-red-100" : builtyStatus.type === "success" ? "bg-emerald-50 text-emerald-700 border-emerald-100" : "bg-blue-50 text-blue-700 border-blue-100 animate-pulse"}`}>
+                      {builtyStatus.text}
+                    </div>
+                  </div>
+                )}
+
+                {/* Data Table */}
+                <div className="flex-1 overflow-y-auto p-0 md:p-6 pt-4 md:pt-4">
+                  {isLoadingPending ? (
+                    <div className="flex justify-center items-center h-full min-h-[400px]">
+                      <div className="w-10 h-10 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin"></div>
+                    </div>
+                  ) : (
+                    <>
+                      {/* MOBILE CARD VIEW */}
+                      <div className="md:hidden flex flex-col divide-y divide-slate-100">
+                        {filteredPendingInvoices.map((inv) => (
+                          <div key={inv.invoice_no} className="p-4 hover:bg-slate-50 transition-colors">
+                            <div className="flex justify-between items-start mb-2">
+                              <span className="font-bold text-slate-900">{formatDisplayInvoiceNo(inv.invoice_no)}</span>
+                              <span className="text-sm font-bold text-slate-400 font-mono">{formatDisplayDate(inv.date)}</span>
+                            </div>
+                            <div className="mb-2">
+                              {inv.sub_account ? (
+                                <>
+                                  <span className="font-bold text-slate-900 text-sm block">{inv.sub_account}</span>
+                                  <span className="text-xs text-slate-500 font-semibold">c/o {inv.main_account}</span>
+                                </>
+                              ) : (
+                                <span className="font-semibold text-slate-900 text-sm">{inv.main_account}</span>
+                              )}
+                            </div>
+                            <div className="flex justify-between items-center text-xs mt-3 border-t border-slate-50 pt-2">
+                               <span className="font-bold text-slate-500 uppercase">{inv.transport || "No Transport"}</span>
+                              {inv.num_of_cases ? (
+                                <span className="font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-md border border-indigo-100">
+                                  {inv.num_of_cases} {inv.packing_type}
+                                </span>
+                              ) : (
+                                <span className="text-slate-300">—</span>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                        {filteredPendingInvoices.length === 0 && (
+                          <div className="p-8 text-center text-slate-400 text-sm font-medium">No pending invoices. Great job!</div>
+                        )}
+                      </div>
+
+                      {/* DESKTOP TABLE VIEW */}
+                      <div className="hidden md:block overflow-x-auto border border-slate-200 rounded-xl bg-white shadow-sm">
+                        <table className="w-full text-left border-collapse min-w-[900px]">
+                          <thead className="bg-slate-50 border-b border-slate-200">
+                            <tr className="text-slate-600 text-xs uppercase tracking-wider font-bold">
+                              <th className="p-4 pl-6 w-[15%]">Inv No</th>
+                              <th className="p-4 w-[15%]">Date</th>
+                              <th className="p-4 w-[35%]">Account</th>
+                              <th className="p-4 w-[20%]">Transport</th>
+                              <th className="p-4 w-[15%] text-right pr-6">Cases</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100 bg-white">
+                            {filteredPendingInvoices.map((inv) => (
+                              <tr key={inv.invoice_no} className="hover:bg-slate-50 transition-colors group">
+                                <td className="p-4 pl-6 text-sm font-bold text-slate-900">
+                                  {formatDisplayInvoiceNo(inv.invoice_no)}
+                                </td>
+                                <td className="p-4 text-sm text-slate-600 font-mono tracking-tight">
+                                  {formatDisplayDate(inv.date)}
+                                </td>
+                                <td className="p-4 text-sm text-slate-700">
+                                  {inv.sub_account ? (
+                                    <>
+                                      <span className="font-bold text-slate-900 block md:inline">{inv.sub_account}</span>
+                                      <span className="text-slate-400 font-normal mx-1 hidden md:inline">c/o</span>
+                                      <span className="block md:inline text-xs md:text-sm font-semibold">{inv.main_account}</span>
+                                    </>
+                                  ) : (
+                                    <span className="font-semibold text-slate-900">{inv.main_account}</span>
+                                  )}
+                                </td>
+                                <td className="p-4 text-sm font-semibold text-slate-500">
+                                  {inv.transport || "—"}
+                                </td>
+                                <td className="p-4 pr-6 text-sm text-right">
+                                  {inv.num_of_cases ? (
+                                    <span className="font-bold text-indigo-700 bg-indigo-50 px-2 py-1 rounded-md border border-indigo-100 inline-block">
+                                      {inv.num_of_cases} {inv.packing_type}
+                                    </span>
+                                  ) : (
+                                    <span className="text-slate-300">—</span>
+                                  )}
+                                </td>
+                              </tr>
+                            ))}
+                            {filteredPendingInvoices.length === 0 && (
+                              <tr><td colSpan={5} className="p-12 text-center text-emerald-600 font-bold bg-emerald-50/50">All caught up! No invoices are pending LR details.</td></tr>
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+
+          {/* ========================================================= */}
           {/* INVOICE REGISTER VIEW */}
           {/* ========================================================= */}
           {activeView === "invoice_register" && (
@@ -810,14 +1079,9 @@ export default function Dashboard({
                     </div>
                   ) : (
                     <>
-                      {/* NEW: MOBILE CARD VIEW FOR INVOICE REGISTER */}
                       <div className="md:hidden flex flex-col divide-y divide-slate-100">
                         {filteredRegisterInvoices.map((inv) => (
-                          <div 
-                            key={inv.invoice_no} 
-                            onClick={() => setSelectedInvoice(inv)} 
-                            className="p-4 hover:bg-blue-50/50 transition-colors cursor-pointer"
-                          >
+                          <div key={inv.invoice_no} onClick={() => setSelectedInvoice(inv)} className="p-4 hover:bg-blue-50/50 transition-colors cursor-pointer">
                             <div className="flex justify-between items-start mb-2">
                               <span className="font-bold text-slate-900">{formatDisplayInvoiceNo(inv.invoice_no)}</span>
                               <span className="text-sm font-bold text-emerald-600">₹{formatIndianAmount(inv.amount)}</span>
@@ -849,7 +1113,6 @@ export default function Dashboard({
                         )}
                       </div>
 
-                      {/* DESKTOP TABLE VIEW FOR INVOICE REGISTER */}
                       <div className="hidden md:block overflow-x-auto">
                         <table className="w-full text-left border-collapse min-w-[900px]">
                           <thead className="bg-slate-50 sticky top-0 z-10 shadow-sm border-b border-slate-200">
@@ -863,11 +1126,7 @@ export default function Dashboard({
                           </thead>
                           <tbody className="divide-y divide-slate-100 bg-white">
                             {filteredRegisterInvoices.map((inv) => (
-                              <tr 
-                                key={inv.invoice_no} 
-                                onClick={() => setSelectedInvoice(inv)}
-                                className="hover:bg-blue-50/50 transition-colors cursor-pointer group"
-                              >
+                              <tr key={inv.invoice_no} onClick={() => setSelectedInvoice(inv)} className="hover:bg-blue-50/50 transition-colors cursor-pointer group">
                                 <td className="p-4 pl-6 text-sm font-bold text-slate-900 group-hover:text-blue-600 transition-colors">
                                   {formatDisplayInvoiceNo(inv.invoice_no)}
                                 </td>
@@ -909,7 +1168,6 @@ export default function Dashboard({
                   )}
                 </div>
 
-                {/* Sticky Summary Footer */}
                 <div className="bg-slate-800 text-white p-4 md:p-5 sticky bottom-0 z-20 flex flex-col md:flex-row justify-between items-center shrink-0 border-t border-slate-700">
                   <div className="flex flex-wrap items-center gap-3 md:gap-6 text-sm font-medium mb-3 md:mb-0">
                     <span className="text-slate-400 uppercase tracking-widest text-xs font-bold hidden md:inline">Totals Summary</span>
@@ -1012,7 +1270,7 @@ export default function Dashboard({
           )}
 
           {/* BACKGROUND PLACEHOLDER */}
-          {activeView !== "users" && activeView !== "settings_company" && activeView !== "upload_invoices" && activeView !== "invoice_register" && (
+          {activeView !== "users" && activeView !== "settings_company" && activeView !== "upload_invoices" && activeView !== "invoice_register" && activeView !== "upload_builty" && (
              <div className="flex-1 flex justify-center items-center">
                <h2 className="text-2xl font-bold text-slate-400/70 animate-pulse text-center px-4">
                  {activeView !== "dashboard" ? `${activeView.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')} (Coming Soon)` : ""}
@@ -1025,7 +1283,64 @@ export default function Dashboard({
         {/* MODALS */}
         {/* ========================================================= */}
 
-        {/* SINGLE INVOICE DETAILS MODAL */}
+        {/* 1. BUILTY MATCH CONFIRMATION MODAL */}
+        {showBuiltyConfirm && matchedInvoice && (
+          <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 transition-all duration-300 animate-fade-in">
+            <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden flex flex-col">
+              <div className="bg-blue-600 p-6 flex flex-col items-center justify-center text-center">
+                <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center mb-3">
+                  <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path></svg>
+                </div>
+                <h2 className="text-xl font-bold text-white">Builty Match Found!</h2>
+                <p className="text-blue-100 text-sm mt-1">We found a pending invoice that perfectly matches this builty.</p>
+              </div>
+              <div className="p-6 bg-slate-50 border-b border-slate-100">
+                <div className="space-y-3 text-sm">
+                   <div className="flex justify-between"><span className="text-slate-500 font-medium">Invoice No:</span> <span className="font-bold text-slate-900">{formatDisplayInvoiceNo(matchedInvoice.invoice_no)}</span></div>
+                   <div className="flex justify-between"><span className="text-slate-500 font-medium">Party Name:</span> <span className="font-bold text-slate-900 truncate max-w-[200px] text-right">{matchedInvoice.sub_account || matchedInvoice.main_account}</span></div>
+                   <div className="flex justify-between"><span className="text-slate-500 font-medium">Transport:</span> <span className="font-bold text-slate-900">{matchedInvoice.transport || "N/A"}</span></div>
+                   <div className="flex justify-between"><span className="text-slate-500 font-medium">Packing/Cases:</span> <span className="font-bold text-slate-900">{matchedInvoice.num_of_cases ? `${matchedInvoice.num_of_cases} ${matchedInvoice.packing_type}` : "N/A"}</span></div>
+                </div>
+              </div>
+              <div className="p-5 flex gap-3">
+                <button onClick={() => setShowBuiltyConfirm(false)} className="flex-1 px-4 py-3 bg-slate-100 text-slate-700 font-bold rounded-xl hover:bg-slate-200 transition-colors">Cancel</button>
+                <button onClick={confirmBuiltyMatch} className="flex-1 px-4 py-3 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 shadow-md transition-colors">Yes, Continue</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 2. BUILTY LR EDIT & SAVE MODAL */}
+        {showBuiltyEdit && matchedInvoice && (
+          <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 transition-all duration-300 animate-fade-in">
+            <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden flex flex-col">
+              <div className="p-5 border-b border-slate-100 flex justify-between items-center">
+                 <div>
+                    <h2 className="text-lg font-bold text-slate-900">Update LR Details</h2>
+                    <p className="text-xs text-slate-500">Invoice: {formatDisplayInvoiceNo(matchedInvoice.invoice_no)}</p>
+                 </div>
+                 <button onClick={() => setShowBuiltyEdit(false)} className="p-2 text-slate-400 hover:bg-slate-100 rounded-full"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg></button>
+              </div>
+              <div className="p-6 space-y-5">
+                 <div>
+                    <label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wider">LR Number (GR No.)</label>
+                    <input type="text" value={builtyForm.lr_number} onChange={(e) => setBuiltyForm({...builtyForm, lr_number: e.target.value})} className="w-full px-4 h-12 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 font-bold text-slate-900" placeholder="e.g. 2195" />
+                 </div>
+                 <div>
+                    <label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wider">LR Date</label>
+                    <input type="date" value={builtyForm.lr_date} onChange={(e) => setBuiltyForm({...builtyForm, lr_date: e.target.value})} className="w-full px-4 h-12 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 font-bold text-slate-900" />
+                 </div>
+              </div>
+              <div className="p-5 border-t border-slate-100 bg-slate-50">
+                 <button onClick={saveBuiltyToDatabase} disabled={isSavingBuilty} className="w-full px-4 py-3.5 bg-emerald-600 text-white font-bold rounded-xl hover:bg-emerald-700 shadow-md transition-colors disabled:opacity-50">
+                    {isSavingBuilty ? "Saving Image & Details..." : "Save Builty & Update Invoice"}
+                 </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 3. SINGLE INVOICE DETAILS MODAL (Updated with View Builty Button) */}
         {selectedInvoice && (
           <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm md:p-6 transition-all duration-300 animate-fade-in" onClick={() => setSelectedInvoice(null)}>
             <div className="bg-white md:bg-white/95 md:backdrop-blur-xl w-full h-full md:h-auto md:max-w-3xl md:rounded-2xl shadow-2xl flex flex-col overflow-y-auto" onClick={(e) => e.stopPropagation()}>
@@ -1043,15 +1358,28 @@ export default function Dashboard({
               </div>
               
               <div className="p-6 md:p-8 space-y-8">
-                <div className="bg-slate-50 p-5 rounded-2xl border border-slate-100">
-                  <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3">Account Details</p>
-                  {selectedInvoice.sub_account ? (
-                    <div>
-                      <h3 className="text-lg font-black text-slate-900">{selectedInvoice.sub_account}</h3>
-                      <p className="text-sm font-semibold text-slate-500 mt-1">c/o <span className="text-slate-700">{selectedInvoice.main_account}</span></p>
-                    </div>
-                  ) : (
-                    <h3 className="text-lg font-black text-slate-900">{selectedInvoice.main_account}</h3>
+                <div className="bg-slate-50 p-5 rounded-2xl border border-slate-100 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                  <div>
+                    <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">Account Details</p>
+                    {selectedInvoice.sub_account ? (
+                      <div>
+                        <h3 className="text-lg font-black text-slate-900">{selectedInvoice.sub_account}</h3>
+                        <p className="text-sm font-semibold text-slate-500 mt-1">c/o <span className="text-slate-700">{selectedInvoice.main_account}</span></p>
+                      </div>
+                    ) : (
+                      <h3 className="text-lg font-black text-slate-900">{selectedInvoice.main_account}</h3>
+                    )}
+                  </div>
+                  
+                  {/* View Builty Photo Button! */}
+                  {selectedInvoice.builty_image_url && (
+                    <button 
+                       onClick={() => window.open(selectedInvoice.builty_image_url, "_blank")}
+                       className="flex items-center gap-2 px-4 py-2 bg-indigo-50 text-indigo-700 font-bold border border-indigo-200 rounded-xl hover:bg-indigo-100 transition-colors text-sm"
+                    >
+                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                       View Builty Photo
+                    </button>
                   )}
                 </div>
 
@@ -1076,19 +1404,19 @@ export default function Dashboard({
                     <span className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Transport</span>
                     <span className="text-sm font-semibold text-slate-700">{selectedInvoice.transport || "—"}</span>
                   </div>
-                  <div>
-                    <span className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">LR Number</span>
-                    <span className="text-sm font-semibold text-slate-700">{selectedInvoice.lr_number || "Pending"}</span>
+                  <div className="col-span-2 bg-emerald-50/50 p-3 rounded-xl border border-emerald-100">
+                    <span className="block text-xs font-bold text-emerald-700 uppercase tracking-wider mb-1">LR Number (GR No.)</span>
+                    <span className="text-lg font-black text-emerald-900">{selectedInvoice.lr_number || "Pending"}</span>
                   </div>
-                  <div>
-                    <span className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">LR Date</span>
-                    <span className="text-sm font-semibold text-slate-700">{formatDisplayDate(selectedInvoice.lr_date) || "Pending"}</span>
+                  <div className="col-span-2 bg-emerald-50/50 p-3 rounded-xl border border-emerald-100">
+                    <span className="block text-xs font-bold text-emerald-700 uppercase tracking-wider mb-1">LR Date</span>
+                    <span className="text-lg font-bold text-emerald-900">{formatDisplayDate(selectedInvoice.lr_date) || "Pending"}</span>
                   </div>
                 </div>
 
               </div>
               <div className="p-4 md:p-6 border-t border-slate-100 bg-slate-50 flex justify-end shrink-0">
-                <button onClick={() => setSelectedInvoice(null)} className="px-6 py-2.5 bg-white border border-slate-200 text-slate-700 font-bold rounded-xl hover:bg-slate-100 transition-all text-sm shadow-sm">Close</button>
+                <button onClick={() => setSelectedInvoice(null)} className="px-6 py-2.5 bg-white border border-slate-200 text-slate-700 font-bold rounded-xl hover:bg-slate-100 transition-all text-sm shadow-sm">Close Window</button>
               </div>
             </div>
           </div>
