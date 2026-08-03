@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server';
 
 // --- 1. VERCEL SERVER POLYFILLS ---
-// These MUST run before the PDF library is loaded!
 if (typeof global.DOMMatrix === 'undefined') {
   (global as any).DOMMatrix = class DOMMatrix {};
 }
@@ -12,13 +11,11 @@ if (typeof global.Path2D === 'undefined') {
   (global as any).Path2D = class Path2D {};
 }
 
-// Prevents Vercel from timing out the heavy PDF extraction
 export const maxDuration = 60; 
 
 export async function POST(req: Request) {
   try {
     // --- 2. DYNAMIC LOAD ---
-    // We load the library INSIDE the function to bypass Next.js import hoisting.
     const { PDFParse } = require('pdf-parse');
 
     const formData = await req.formData();
@@ -32,7 +29,6 @@ export async function POST(req: Request) {
     const arrayBuffer = await file.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
     
-    // Initialize the PDF class and extract the text
     const parser = new PDFParse({ data: buffer });
     const data = await parser.getText();
     const rawText = data.text || "";
@@ -41,7 +37,6 @@ export async function POST(req: Request) {
       await parser.destroy();
     }
 
-    // VERIFY COMPANY NAME
     if (expectedCompany && !rawText.toLowerCase().includes(expectedCompany.toLowerCase())) {
       return NextResponse.json({ 
         error: `Company Match Failed: Could not find '${expectedCompany}' in this document. Please check your App Settings.` 
@@ -49,44 +44,56 @@ export async function POST(req: Request) {
     }
 
     // ==========================================
-    // THE "SANITIZE FIRST" EXTRACTION METHOD
+    // AI-SIMULATION "ANCHOR CHUNKING" PARSER
     // ==========================================
-    
-    // Remove all hidden quotation marks that break regex searches
-    const cleanText = rawText.replace(/"/g, '');
-    
-    // Create a version with NO commas so amount parsing is flawless
-    const noCommaText = cleanText.replace(/,/g, '');
+    // This explicitly mimics human/AI reading behavior. Find the keyword, 
+    // grab the next 150 characters, and extract the expected shape.
 
-    // 1. Extract Invoice Number
-    const invoiceNoMatch = cleanText.match(/(?:Bill|Invoice)\s*No[\.\s:]+([A-Z0-9\/\-]+)/i);
-    const invoiceNo = invoiceNoMatch ? invoiceNoMatch[1].trim() : "UNKNOWN";
+    const getChunkAfter = (keyword: string) => {
+      const idx = rawText.toLowerCase().indexOf(keyword.toLowerCase());
+      return idx !== -1 ? rawText.substring(idx + keyword.length, idx + keyword.length + 150) : "";
+    };
 
-    // 2. Extract Date
-    const dateMatch = cleanText.match(/(?:Date|Dated)[^\d]*(\d{2}\/\d{2}\/\d{4})/i);
-    let formattedDate = new Date().toISOString().split('T')[0]; 
-    if (dateMatch && dateMatch[1]) {
-      const [day, month, year] = dateMatch[1].split('/');
-      formattedDate = `${year}-${month}-${day}`;
+    // 1. EXTRACT INVOICE NUMBER
+    let invoiceNo = "UNKNOWN";
+    const billChunk = getChunkAfter("bill no");
+    // Grabs the first real sequence of letters, numbers, slashes, or dashes
+    const billMatch = billChunk.match(/([A-Z0-9][A-Z0-9\/\-]+)/i);
+    if (billMatch) invoiceNo = billMatch[1];
+
+    // 2. EXTRACT DATE
+    let formattedDate = new Date().toISOString().split('T')[0];
+    const dateChunk = getChunkAfter("dated");
+    // Strictly looks for DD/MM/YYYY in the chunk following the word "Dated"
+    const dateMatch = dateChunk.match(/(\d{2})\/(\d{2})\/(\d{4})/);
+    if (dateMatch) {
+      // Reformat to YYYY-MM-DD for SQL
+      formattedDate = `${dateMatch[3]}-${dateMatch[2]}-${dateMatch[1]}`;
     }
 
-    // 3. Extract Customer Name (Main Account)
-    const customerMatch = cleanText.match(/M\/S\s+([^\r\n]+)/i);
-    const mainAccount = customerMatch ? customerMatch[1].trim() : "Unknown Customer";
+    // 3. EXTRACT ACCOUNT
+    let mainAccount = "Unknown Customer";
+    const msChunk = getChunkAfter("m/s");
+    if (msChunk) {
+      // Strips leading colons/spaces/quotes, grabs everything until the first line break
+      mainAccount = msChunk.replace(/^[\s":\.]+/, '').split(/[\r\n]+/)[0].trim();
+    }
 
-    // 4. Extract Transport
-    const transportMatch = cleanText.match(/Transport[:\s]+([^\r\n]+)/i);
-    const transport = transportMatch ? transportMatch[1].trim() : null;
+    // 4. EXTRACT TRANSPORT (Fixes the unnecessary '::')
+    let transport: string | null = null;
+    const transChunk = getChunkAfter("transport");
+    if (transChunk) {
+       // Strips leading colons/spaces/quotes, grabs everything until the first line break
+       transport = transChunk.replace(/^[\s":\.]+/, '').split(/[\r\n]+/)[0].trim();
+    }
 
-    // 5. Extract Grand Total Amount 
-    const amountMatch = noCommaText.match(/Grand Total[^\d]*(\d+\.\d{2})/i);
+    // 5. EXTRACT GRAND TOTAL (Exactly as requested!)
     let amountVal = 0;
-    if (amountMatch && amountMatch[1]) {
-      amountVal = parseFloat(amountMatch[1]);
-    } else {
-       // Fallback: If "Grand Total" isn't found, find the absolute last "Total" number on the page
-       const backupMatch = noCommaText.match(/Total[^\d]*(\d+\.\d{2})(?![\s\S]*\d+\.\d{2})/i);
-       if (backupMatch && backupMatch[1]) amountVal = parseFloat(backupMatch[1]);
+    const grandTotalChunk = getChunkAfter("grand total");
+    // Ignores all words, parentheses, and spaces to grab the first comma-separated decimal
+    const amountMatch = grandTotalChunk.match(/([\d,]+\.\d{2})/);
+    if (amountMatch) {
+      amountVal = parseFloat(amountMatch[1].replace(/,/g, ''));
     }
 
     // Construct the final data object for the database
