@@ -288,7 +288,6 @@ export default function Dashboard({
           const sheetName = workbook.SheetNames[0];
           const sheet = workbook.Sheets[sheetName];
           
-          // Use raw: false to read dates as clean text strings
           const jsonData: any[] = XLSX.utils.sheet_to_json(sheet, { raw: false });
 
           if (jsonData.length === 0) {
@@ -297,8 +296,9 @@ export default function Dashboard({
             return;
           }
 
-          // Map the forgiving column names to the exact DB structure
-          const formattedData = jsonData.map((row: any) => ({
+          // FIX: explicitly declared as any[] and added 'id: undefined' so TypeScript knows it exists
+          const formattedData: any[] = jsonData.map((row: any) => ({
+            id: undefined, 
             date: row.date || row.Date || row.DATE,
             invoice_no: row.invoice_no || row['Invoice No'] || row.InvoiceNo || row.invoiceno,
             main_account: row.main_account || row['Main Account'] || row.MainAccount,
@@ -309,7 +309,7 @@ export default function Dashboard({
             transport: row.transport || row.Transport || null,
             lr_number: row.lr_number || row['LR Number'] || row.LRNumber || row.LR || null,
             lr_date: row.lr_date || row['LR Date'] || row.LRDate || null,
-          })).filter(r => r.invoice_no); // Must have an invoice number
+          })).filter(r => r.invoice_no);
 
           if (formattedData.length === 0) {
             setExcelStatus({ type: "error", text: "No valid 'Invoice No' found in the spreadsheet." });
@@ -319,7 +319,6 @@ export default function Dashboard({
 
           setExcelStatus({ type: "", text: `Found ${formattedData.length} records. Checking database for duplicates...` });
 
-          // Extract just the invoice numbers to query the DB
           const invoiceNos = formattedData.map(r => r.invoice_no);
           
           const { data: existingInvoices, error: fetchErr } = await supabase
@@ -332,7 +331,6 @@ export default function Dashboard({
           const rowsToUpsert = [];
           let skippedCount = 0;
 
-          // Cross-reference logic
           for (const row of formattedData) {
             const existing = existingInvoices?.find(e => e.invoice_no === row.invoice_no);
 
@@ -343,7 +341,7 @@ export default function Dashboard({
                 continue;
               }
               // Rule 2: If it exists but NO LR number -> Grab its ID to Overwrite/Update it
-              row.id = existing.id;
+              row.id = existing.id; // TypeScript will no longer flag this as an error!
             }
             // Rule 3: If it doesn't exist -> Insert it (Supabase will auto-generate ID)
             rowsToUpsert.push(row);
@@ -357,7 +355,6 @@ export default function Dashboard({
 
           setExcelStatus({ type: "", text: `Saving ${rowsToUpsert.length} records to database (Skipped ${skippedCount})...` });
 
-          // Send final payload to database
           const { error: upsertErr } = await supabase.from('invoices').upsert(rowsToUpsert);
 
           if (upsertErr) throw upsertErr;
@@ -421,7 +418,16 @@ export default function Dashboard({
           <nav className="flex-1 py-4 flex flex-col gap-2 px-3 overflow-y-auto">
             {menuOptions.map((item: any) => (
               <div key={item.id}>
-                <button onClick={() => { if (item.children) setExpandedMenu(expandedMenu === item.id ? null : item.id); else handleNavigation(item.id); }} className={`flex items-center gap-4 p-3 rounded-xl transition-colors w-full overflow-hidden font-medium ${activeView === item.id || (item.children && item.children.some((c:any) => c.id === activeView)) ? 'bg-blue-50 text-blue-700' : 'text-slate-600 hover:bg-slate-50 hover:text-blue-700'}`}>
+                <button 
+                  onClick={() => { 
+                    if (item.children) {
+                      setExpandedMenu(expandedMenu === item.id ? null : item.id); 
+                    } else {
+                      handleNavigation(item.id); 
+                    }
+                  }} 
+                  className={`flex items-center gap-4 p-3 rounded-xl transition-colors w-full overflow-hidden font-medium ${activeView === item.id || (item.children && item.children.some((c:any) => c.id === activeView)) ? 'bg-blue-50 text-blue-700' : 'text-slate-600 hover:bg-slate-50 hover:text-blue-700'}`}
+                >
                   <svg className="w-6 h-6 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d={item.icon}></path></svg>
                   <span className="whitespace-nowrap">{item.name}</span>
                   {item.children && <svg className={`ml-auto w-4 h-4 shrink-0 transition-transform duration-200 ${expandedMenu === item.id ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>}
