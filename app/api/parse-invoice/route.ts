@@ -63,26 +63,29 @@ export async function POST(req: Request) {
       formattedDate = `${year}-${month}-${day}`;
     }
 
-    // 3. EXTRACT ACCOUNT
-    const customerMatch = rawText.match(/M\/S\s+([^\r\n]+)/i);
-    let mainAccount = customerMatch ? customerMatch[1].replace(/['"]/g, '').trim() : "Unknown Customer";
+    // 3. EXTRACT ACCOUNTS (Main and Sub Account with Lookahead)
+    // The (?=\s*M\/S|[\r\n]|$) tells it to STOP grabbing if it sees another "M/S" on the same line!
+    const customerMatches = [...rawText.matchAll(/M\/S\s+(.*?)(?=\s*M\/S|[\r\n]|$)/ig)];
+    let mainAccount = "Unknown Customer";
+    let subAccount = null;
+
+    if (customerMatches.length > 0) {
+        mainAccount = customerMatches[0][1].replace(/['"]/g, '').trim();
+    }
+    if (customerMatches.length > 1) {
+        subAccount = customerMatches[1][1].replace(/['"]/g, '').trim();
+    }
 
     // 4. EXTRACT TRANSPORT
     const transportMatch = rawText.match(/Transport:*\s*([^\r\n]+)/i);
     let transport = transportMatch ? transportMatch[1].replace(/[:'"]/g, '').trim() : "";
 
-    // 5. EXTRACT GRAND TOTAL (The "Maximum Amount" Strategy)
+    // 5. EXTRACT GRAND TOTAL
     let amountVal = 0;
-    
-    // Step A: Remove commas so "2,25,887.00" becomes "225887.00"
     const noCommaText = rawText.replace(/,/g, ''); 
-    
-    // Step B: Find every single decimal number on the entire page
     const allAmounts = noCommaText.match(/\d+\.\d{2}/g); 
     
-    // Step C: Convert them to actual numbers and pick the absolute highest one!
     if (allAmounts && allAmounts.length > 0) {
-        // THE FIX: We explicitly tell TypeScript that 'val' is a string!
         const numericAmounts = allAmounts.map((val: string) => parseFloat(val));
         amountVal = Math.max(...numericAmounts);
     }
@@ -92,7 +95,7 @@ export async function POST(req: Request) {
       date: formattedDate, 
       invoice_no: invoiceNo,
       main_account: mainAccount,
-      sub_account: null,
+      sub_account: subAccount,
       num_of_cases: null, 
       packing_type: "Carton", 
       amount: amountVal,
