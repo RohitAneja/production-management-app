@@ -596,7 +596,17 @@ export default function Dashboard({
                               <td className="p-4 pl-6 text-sm font-medium text-slate-500 truncate max-w-[150px]">{inv.source_file}</td>
                               <td className="p-4 text-sm font-bold text-slate-900">{inv.invoice_no}</td>
                               <td className="p-4 text-sm text-slate-600">{inv.date}</td>
-                              <td className="p-4 text-sm font-semibold text-slate-700">{inv.main_account}</td>
+                              <td className="p-4 text-sm font-semibold text-slate-700">
+                                {inv.sub_account ? (
+                                <>
+                                <span className="font-bold text-slate-900">{inv.sub_account}</span>
+                                <span className="text-slate-400 font-normal mx-1">c/o</span>
+                                <span>{inv.main_account}</span>
+                                </>
+                                ) : (
+                                inv.main_account
+                              )}
+                              </td>
                               <td className="p-4 text-sm font-bold text-emerald-600">₹{inv.amount}</td>
                               <td className="p-4 text-sm text-slate-600">{inv.transport}</td>
                             </tr>
