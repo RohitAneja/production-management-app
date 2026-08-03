@@ -195,14 +195,17 @@ export default function Dashboard({
   // Filter Logic for Invoice Register
   const filteredRegisterInvoices = allInvoices.filter(inv => {
     const searchLower = invoiceSearchQuery.toLowerCase();
+    
+    // THE FIX: We use String() to force numbers/nulls into safe text before searching!
     return (
-      (inv.invoice_no?.toLowerCase().includes(searchLower)) ||
-      (inv.main_account?.toLowerCase().includes(searchLower)) ||
-      (inv.sub_account?.toLowerCase().includes(searchLower)) ||
+      (String(inv.invoice_no || "").toLowerCase().includes(searchLower)) ||
+      (String(inv.main_account || "").toLowerCase().includes(searchLower)) ||
+      (String(inv.sub_account || "").toLowerCase().includes(searchLower)) ||
       (formatDisplayDate(inv.date).includes(searchLower))
     );
   });
 
+  
   // Analytics Math for the Sticky Footer
   const totalRegisterAmount = filteredRegisterInvoices.reduce((sum, inv) => sum + (Number(inv.amount) || 0), 0);
   const casesBreakdown = filteredRegisterInvoices.reduce((acc, inv) => {
