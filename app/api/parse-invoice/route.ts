@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
-import { PDFParse } from 'pdf-parse';
 
-// --- VERCEL SERVER POLYFILLS ---
+// --- 1. VERCEL SERVER POLYFILLS ---
+// These are placed at the very top and execute immediately.
 if (typeof global.DOMMatrix === 'undefined') {
   (global as any).DOMMatrix = class DOMMatrix {};
 }
@@ -14,6 +14,11 @@ if (typeof global.Path2D === 'undefined') {
 
 export async function POST(req: Request) {
   try {
+    // --- 2. DYNAMIC LOAD ---
+    // We load the library INSIDE the function to bypass Next.js import hoisting.
+    // This guarantees the polyfills above run BEFORE the library is evaluated.
+    const { PDFParse } = require('pdf-parse');
+
     const formData = await req.formData();
     const file = formData.get('file') as File;
     const expectedCompany = (formData.get('company_name') as string) || "";
@@ -25,6 +30,7 @@ export async function POST(req: Request) {
     const arrayBuffer = await file.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
     
+    // Initialize the Version 2 class and extract the text
     const parser = new PDFParse({ data: buffer });
     const data = await parser.getText();
     const pdfText = data.text || "";
@@ -33,6 +39,7 @@ export async function POST(req: Request) {
       await parser.destroy();
     }
 
+    // VERIFY COMPANY NAME
     if (expectedCompany && !pdfText.toLowerCase().includes(expectedCompany.toLowerCase())) {
       return NextResponse.json({ 
         error: `Company Match Failed: Could not find '${expectedCompany}' in this document. Please check your App Settings.` 
@@ -40,16 +47,14 @@ export async function POST(req: Request) {
     }
 
     // ==========================================
-    // THE ULTIMATE WILDCARD REGEX EXTRACTION
+    // HYPER-PRECISE DATA EXTRACTION
     // ==========================================
     
     // 1. Extract Invoice Number
-    // Looks for "Bill No", ignores random dots/spaces, grabs the alphanumeric ID
     const invoiceNoMatch = pdfText.match(/Bill\s*No[\.\s]*([A-Za-z0-9\/\-]+)/i);
     const invoiceNo = invoiceNoMatch ? invoiceNoMatch[1].replace(/"/g, '').trim() : "UNKNOWN";
 
     // 2. Extract Date
-    // [\s\S]*? jumps across the hard line break to find the exact DD/MM/YYYY
     const dateMatch = pdfText.match(/Dated[\s\S]*?(\d{2}\/\d{2}\/\d{4})/i);
     let formattedDate = new Date().toISOString().split('T')[0];
     if (dateMatch && dateMatch[1]) {
@@ -58,16 +63,14 @@ export async function POST(req: Request) {
     }
 
     // 3. Extract Customer Name (Main Account)
-    const customerMatch = pdfText.match(/M\/S\s+([^\r\n]+)/i);
+    const customerMatch = pdfText.match(/M\/S\s+([^"\r\n]+)/i);
     const mainAccount = customerMatch ? customerMatch[1].replace(/"/g, '').trim() : "Unknown Customer";
 
     // 4. Extract Transport
-    // Looks for "Transport", ignores the double colons and spaces
-    const transportMatch = pdfText.match(/Transport:+\s*([^\r\n]+)/i);
+    const transportMatch = pdfText.match(/Transport:+\s*([^"\r\n]+)/i);
     const transport = transportMatch ? transportMatch[1].replace(/"/g, '').trim() : "Unknown Transport";
 
     // 5. Extract Grand Total Amount 
-    // [\s\S]*? jumps across the '","' and the newlines to grab the exact decimal
     const amountMatch = pdfText.match(/Grand Total[\s\S]*?([\d,]+\.\d{2})/i);
     let amountVal = 0;
     if (amountMatch && amountMatch[1]) {
