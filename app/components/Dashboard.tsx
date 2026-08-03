@@ -824,9 +824,9 @@ export default function Dashboard({
                 <div className="bg-slate-800 text-white p-4 md:p-5 sticky bottom-0 z-20 flex flex-col md:flex-row justify-between items-center shrink-0 border-t border-slate-700">
                   <div className="flex flex-wrap items-center gap-3 md:gap-6 text-sm font-medium mb-3 md:mb-0">
                     <span className="text-slate-400 uppercase tracking-widest text-xs font-bold">Totals Summary</span>
-                    {Object.entries(casesBreakdown).map(([type, count]) => (
+                    {Object.entries(casesBreakdown).map(([type, count]: [string, any]) => (
                       <span key={type} className="bg-slate-700/50 border border-slate-600 px-3 py-1.5 rounded-lg flex items-center gap-2 shadow-sm">
-                        <span className="font-bold text-white text-base">{count}</span>
+                        <span className="font-bold text-white text-base">{String(count)}</span>
                         <span className="text-slate-300 capitalize">{type}</span>
                       </span>
                     ))}
