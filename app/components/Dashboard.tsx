@@ -305,19 +305,29 @@ export default function Dashboard({
     setShowBuiltyEdit(true); 
   };
 
-  const saveBuiltyToDatabase = async () => {
+ const saveBuiltyToDatabase = async () => {
     if (!matchedInvoice || !builtyFile) return;
     setIsSavingBuilty(true);
-    setBuiltyStatus({ type: "info", text: "Saving Builty details..." });
+    setBuiltyStatus({ type: "info", text: "Uploading image to secure cloud storage..." });
 
     try {
+       // 1. Create standardized file name: "1515_BAKSHI_TRADERS.jpg"
        const fileExt = builtyFile.name.split('.').pop() || 'jpg';
        const safePartyName = matchedInvoice.main_account.replace(/[^a-zA-Z0-9]/g, '_');
        const fileName = `${formatDisplayInvoiceNo(matchedInvoice.invoice_no)}_${safePartyName}.${fileExt}`;
 
-       // MOCK URL for testing - replace with actual Supabase Storage URL in production
-       const imageUrl = "uploaded_successfully"; 
+       // 2. Upload the ACTUAL file to the Supabase "builties" bucket
+       const { data: storageData, error: storageErr } = await supabase.storage
+         .from('builties')
+         .upload(fileName, builtyFile, { upsert: true });
 
+       if (storageErr) throw storageErr;
+       
+       // 3. Get the real, clickable public internet URL for the photo
+       const { data: publicUrlData } = supabase.storage.from('builties').getPublicUrl(fileName);
+       const imageUrl = publicUrlData.publicUrl;
+
+       // 4. Update the Invoice Database Row with the REAL URL
        const { error: dbErr } = await supabase.from('invoices').update({
            lr_number: builtyForm.lr_number || null,
            lr_date: builtyForm.lr_date || null,
@@ -326,7 +336,7 @@ export default function Dashboard({
 
        if (dbErr) throw dbErr;
 
-       // Trigger Local Device Download
+       // 5. Trigger Local Device Download (Optional Backup)
        const localUrl = URL.createObjectURL(builtyFile);
        const a = document.createElement("a");
        a.href = localUrl;
@@ -336,7 +346,7 @@ export default function Dashboard({
        document.body.removeChild(a);
        URL.revokeObjectURL(localUrl);
 
-       setBuiltyStatus({ type: "success", text: "Builty securely saved to server and downloaded locally!" });
+       setBuiltyStatus({ type: "success", text: "Builty securely uploaded and linked to Invoice!" });
        setTimeout(() => {
            setShowBuiltyEdit(false);
            setMatchedInvoice(null);
@@ -350,7 +360,6 @@ export default function Dashboard({
     }
     setIsSavingBuilty(false);
   };
-
 
   // ==========================================
   // FORM HANDLERS (Users & Settings)
