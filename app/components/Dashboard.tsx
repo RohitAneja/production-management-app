@@ -164,7 +164,7 @@ export default function Dashboard({
       const { data, error } = await supabase
         .from('invoices')
         .select('*')
-        .order('date', { ascending: false }); // Show newest first
+        .order('date', { ascending: false }); 
 
       if (error) throw error;
       if (data) setAllInvoices(data);
@@ -177,7 +177,7 @@ export default function Dashboard({
   useEffect(() => {
     if (activeView === "invoice_register") {
       fetchAllInvoices();
-      setInvoiceSearchQuery(""); // Reset search on load
+      setInvoiceSearchQuery(""); 
     }
   }, [activeView]);
 
@@ -226,7 +226,6 @@ export default function Dashboard({
     return String(fieldValue).toLowerCase().includes(query.toLowerCase());
   };
 
-  // 1. Safe User Search
   const filteredUsers = usersList.filter(user => {
     const roleName = Array.isArray(user.roles) ? user.roles[0]?.role_name : user.roles?.role_name;
     return (
@@ -236,7 +235,6 @@ export default function Dashboard({
     );
   });
 
-  // 2. Safe Invoice Register Search
   const filteredRegisterInvoices = allInvoices.filter(inv => {
     return (
       safeSearch(inv.invoice_no, invoiceSearchQuery) ||
@@ -246,7 +244,6 @@ export default function Dashboard({
     );
   });
 
-  // Analytics Math for the Sticky Footer
   const totalRegisterAmount = filteredRegisterInvoices.reduce((sum, inv) => sum + (Number(inv.amount) || 0), 0);
   const casesBreakdown = filteredRegisterInvoices.reduce((acc, inv) => {
     if (inv.num_of_cases && inv.packing_type) {
@@ -525,7 +522,6 @@ export default function Dashboard({
   ];
 
   if (userRole && userRole.trim().toUpperCase() === "ADMIN") {
-    // Inject Invoice Register Menu
     const invMenu = menuOptions.find(m => m.id === "invoices_parent");
     if (invMenu && invMenu.children && !invMenu.children.some(c => c.id === 'invoice_register')) {
       invMenu.children.push({
@@ -626,7 +622,9 @@ export default function Dashboard({
         {/* FULL SCREEN DYNAMIC VIEWS */}
         <div className="flex-1 flex flex-col p-0 md:p-6 overflow-hidden">
 
+          {/* ========================================================= */}
           {/* UPLOAD INVOICES VIEW */}
+          {/* ========================================================= */}
           {activeView === "upload_invoices" && (
             <div className="flex-1 flex flex-col bg-white md:bg-white/95 md:backdrop-blur-xl rounded-none md:rounded-2xl shadow-none md:shadow-xl border-none md:border md:border-white overflow-hidden animate-fade-in relative">
               <div className="flex-1 overflow-y-auto pb-12" onScroll={handleMainScroll}>
@@ -680,7 +678,7 @@ export default function Dashboard({
                 </div>
 
                 {scannedInvoices.length > 0 && (
-                  <div id="preview-section" className="p-6 bg-slate-50/50 min-h-[600px]">
+                  <div id="preview-section" className="p-4 md:p-6 bg-slate-50/50 min-h-[600px]">
                     <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
                       <div>
                         <h3 className="text-xl font-bold text-slate-800">Scanned Results Preview</h3>
@@ -690,7 +688,45 @@ export default function Dashboard({
                         {isScanning ? "Saving..." : "Confirm & Save to Database"}
                       </button>
                     </div>
-                    <div className="overflow-x-auto border border-slate-200 rounded-xl bg-white shadow-sm">
+
+                    {/* NEW: MOBILE CARD VIEW FOR PREVIEWS */}
+                    <div className="md:hidden flex flex-col gap-4">
+                      {scannedInvoices.map((inv, idx) => (
+                        <div key={idx} className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+                          <div className="flex justify-between items-start mb-2">
+                            <span className="font-bold text-slate-900">{formatDisplayInvoiceNo(inv.invoice_no)}</span>
+                            <span className="text-sm font-bold text-emerald-600">₹{formatIndianAmount(inv.amount)}</span>
+                          </div>
+                          <div className="mb-2">
+                            {inv.sub_account ? (
+                              <>
+                                <span className="font-bold text-slate-900 text-sm block">{inv.sub_account}</span>
+                                <span className="text-xs text-slate-500 font-semibold">c/o {inv.main_account}</span>
+                              </>
+                            ) : (
+                              <span className="font-semibold text-slate-900 text-sm">{inv.main_account}</span>
+                            )}
+                          </div>
+                          <div className="flex justify-between items-center text-xs mb-3">
+                            <span className="text-slate-500 font-mono">{formatDisplayDate(inv.date)}</span>
+                            {inv.num_of_cases ? (
+                              <span className="font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-md border border-indigo-100">
+                                {inv.num_of_cases} {inv.packing_type}
+                              </span>
+                            ) : (
+                              <span className="text-slate-300">—</span>
+                            )}
+                          </div>
+                          <div className="flex justify-between items-center text-xs text-slate-400 border-t border-slate-50 pt-2">
+                            <span className="truncate max-w-[150px]">{inv.source_file}</span>
+                            <span className="truncate max-w-[120px]">{inv.transport || "No Transport"}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* DESKTOP TABLE VIEW */}
+                    <div className="hidden md:block overflow-x-auto border border-slate-200 rounded-xl bg-white shadow-sm">
                       <table className="w-full text-left border-collapse min-w-[1100px]">
                         <thead className="bg-slate-100 border-b border-slate-200">
                           <tr className="text-slate-600 text-xs uppercase tracking-wider font-bold">
@@ -750,10 +786,10 @@ export default function Dashboard({
               <div className="flex-1 flex flex-col h-full relative">
                 
                 {/* Header & Search Bar */}
-                <div className="p-5 md:p-6 border-b border-slate-100 bg-white/70 backdrop-blur-md sticky top-0 z-20 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 shrink-0">
+                <div className="p-4 md:p-6 border-b border-slate-100 bg-white/70 backdrop-blur-md sticky top-0 z-20 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 shrink-0">
                   <div>
                     <h2 className="text-xl md:text-2xl font-bold text-slate-900">Invoice Register</h2>
-                    <p className="text-sm text-slate-500">Comprehensive view of all processed invoices.</p>
+                    <p className="text-sm text-slate-500 hidden md:block">Comprehensive view of all processed invoices.</p>
                   </div>
                   <div className="relative w-full md:w-80">
                     <svg className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
@@ -767,73 +803,116 @@ export default function Dashboard({
                   </div>
                 </div>
                 
-                {/* Data Table */}
-                <div className="flex-1 overflow-x-auto overflow-y-auto">
+                <div className="flex-1 overflow-y-auto">
                   {isLoadingInvoices ? (
                     <div className="flex justify-center items-center h-full min-h-[400px]">
                       <div className="w-10 h-10 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin"></div>
                     </div>
                   ) : (
-                    <table className="w-full text-left border-collapse min-w-[900px]">
-                      <thead className="bg-slate-50 sticky top-0 z-10 shadow-sm border-b border-slate-200">
-                        <tr className="text-slate-600 text-xs uppercase tracking-wider font-bold">
-                          <th className="p-4 pl-6 w-[15%]">Inv No</th>
-                          <th className="p-4 w-[15%]">Date</th>
-                          <th className="p-4 w-[40%]">Account</th>
-                          <th className="p-4 w-[15%]">Cases</th>
-                          <th className="p-4 w-[15%] text-right pr-6">Amount</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100 bg-white">
+                    <>
+                      {/* NEW: MOBILE CARD VIEW FOR INVOICE REGISTER */}
+                      <div className="md:hidden flex flex-col divide-y divide-slate-100">
                         {filteredRegisterInvoices.map((inv) => (
-                          <tr 
+                          <div 
                             key={inv.invoice_no} 
-                            onClick={() => setSelectedInvoice(inv)}
-                            className="hover:bg-blue-50/50 transition-colors cursor-pointer group"
+                            onClick={() => setSelectedInvoice(inv)} 
+                            className="p-4 hover:bg-blue-50/50 transition-colors cursor-pointer"
                           >
-                            <td className="p-4 pl-6 text-sm font-bold text-slate-900 group-hover:text-blue-600 transition-colors">
-                              {formatDisplayInvoiceNo(inv.invoice_no)}
-                            </td>
-                            <td className="p-4 text-sm text-slate-600 font-mono tracking-tight">
-                              {formatDisplayDate(inv.date)}
-                            </td>
-                            <td className="p-4 text-sm text-slate-700">
+                            <div className="flex justify-between items-start mb-2">
+                              <span className="font-bold text-slate-900">{formatDisplayInvoiceNo(inv.invoice_no)}</span>
+                              <span className="text-sm font-bold text-emerald-600">₹{formatIndianAmount(inv.amount)}</span>
+                            </div>
+                            <div className="mb-2">
                               {inv.sub_account ? (
                                 <>
-                                  <span className="font-bold text-slate-900 block md:inline">{inv.sub_account}</span>
-                                  <span className="text-slate-400 font-normal mx-1 hidden md:inline">c/o</span>
-                                  <span className="block md:inline text-xs md:text-sm font-semibold">{inv.main_account}</span>
+                                  <span className="font-bold text-slate-900 text-sm block">{inv.sub_account}</span>
+                                  <span className="text-xs text-slate-500 font-semibold">c/o {inv.main_account}</span>
                                 </>
                               ) : (
-                                <span className="font-semibold text-slate-900">{inv.main_account}</span>
+                                <span className="font-semibold text-slate-900 text-sm">{inv.main_account}</span>
                               )}
-                            </td>
-                            <td className="p-4 text-sm">
+                            </div>
+                            <div className="flex justify-between items-center text-xs">
+                              <span className="text-slate-500 font-mono">{formatDisplayDate(inv.date)}</span>
                               {inv.num_of_cases ? (
-                                <span className="font-bold text-indigo-700 bg-indigo-50 px-2 py-1 rounded-md border border-indigo-100">
+                                <span className="font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-md border border-indigo-100">
                                   {inv.num_of_cases} {inv.packing_type}
                                 </span>
                               ) : (
                                 <span className="text-slate-300">—</span>
                               )}
-                            </td>
-                            <td className="p-4 pr-6 text-sm font-bold text-emerald-600 text-right">
-                              ₹{formatIndianAmount(inv.amount)}
-                            </td>
-                          </tr>
+                            </div>
+                          </div>
                         ))}
                         {filteredRegisterInvoices.length === 0 && (
-                          <tr><td colSpan={5} className="p-12 text-center text-slate-400 font-medium">No invoices found matching your criteria.</td></tr>
+                          <div className="p-8 text-center text-slate-400 text-sm font-medium">No invoices found matching your criteria.</div>
                         )}
-                      </tbody>
-                    </table>
+                      </div>
+
+                      {/* DESKTOP TABLE VIEW FOR INVOICE REGISTER */}
+                      <div className="hidden md:block overflow-x-auto">
+                        <table className="w-full text-left border-collapse min-w-[900px]">
+                          <thead className="bg-slate-50 sticky top-0 z-10 shadow-sm border-b border-slate-200">
+                            <tr className="text-slate-600 text-xs uppercase tracking-wider font-bold">
+                              <th className="p-4 pl-6 w-[15%]">Inv No</th>
+                              <th className="p-4 w-[15%]">Date</th>
+                              <th className="p-4 w-[40%]">Account</th>
+                              <th className="p-4 w-[15%]">Cases</th>
+                              <th className="p-4 w-[15%] text-right pr-6">Amount</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100 bg-white">
+                            {filteredRegisterInvoices.map((inv) => (
+                              <tr 
+                                key={inv.invoice_no} 
+                                onClick={() => setSelectedInvoice(inv)}
+                                className="hover:bg-blue-50/50 transition-colors cursor-pointer group"
+                              >
+                                <td className="p-4 pl-6 text-sm font-bold text-slate-900 group-hover:text-blue-600 transition-colors">
+                                  {formatDisplayInvoiceNo(inv.invoice_no)}
+                                </td>
+                                <td className="p-4 text-sm text-slate-600 font-mono tracking-tight">
+                                  {formatDisplayDate(inv.date)}
+                                </td>
+                                <td className="p-4 text-sm text-slate-700">
+                                  {inv.sub_account ? (
+                                    <>
+                                      <span className="font-bold text-slate-900 block md:inline">{inv.sub_account}</span>
+                                      <span className="text-slate-400 font-normal mx-1 hidden md:inline">c/o</span>
+                                      <span className="block md:inline text-xs md:text-sm font-semibold">{inv.main_account}</span>
+                                    </>
+                                  ) : (
+                                    <span className="font-semibold text-slate-900">{inv.main_account}</span>
+                                  )}
+                                </td>
+                                <td className="p-4 text-sm">
+                                  {inv.num_of_cases ? (
+                                    <span className="font-bold text-indigo-700 bg-indigo-50 px-2 py-1 rounded-md border border-indigo-100">
+                                      {inv.num_of_cases} {inv.packing_type}
+                                    </span>
+                                  ) : (
+                                    <span className="text-slate-300">—</span>
+                                  )}
+                                </td>
+                                <td className="p-4 pr-6 text-sm font-bold text-emerald-600 text-right">
+                                  ₹{formatIndianAmount(inv.amount)}
+                                </td>
+                              </tr>
+                            ))}
+                            {filteredRegisterInvoices.length === 0 && (
+                              <tr><td colSpan={5} className="p-12 text-center text-slate-400 font-medium">No invoices found matching your criteria.</td></tr>
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </>
                   )}
                 </div>
 
                 {/* Sticky Summary Footer */}
                 <div className="bg-slate-800 text-white p-4 md:p-5 sticky bottom-0 z-20 flex flex-col md:flex-row justify-between items-center shrink-0 border-t border-slate-700">
                   <div className="flex flex-wrap items-center gap-3 md:gap-6 text-sm font-medium mb-3 md:mb-0">
-                    <span className="text-slate-400 uppercase tracking-widest text-xs font-bold">Totals Summary</span>
+                    <span className="text-slate-400 uppercase tracking-widest text-xs font-bold hidden md:inline">Totals Summary</span>
                     {Object.entries(casesBreakdown).map(([type, count]: [string, any]) => (
                       <span key={type} className="bg-slate-700/50 border border-slate-600 px-3 py-1.5 rounded-lg flex items-center gap-2 shadow-sm">
                         <span className="font-bold text-white text-base">{String(count)}</span>
@@ -842,7 +921,7 @@ export default function Dashboard({
                     ))}
                     {Object.keys(casesBreakdown).length === 0 && <span className="text-slate-500 italic">No packing data</span>}
                   </div>
-                  <div className="flex items-center gap-4 bg-emerald-500/10 border border-emerald-500/20 px-5 py-2.5 rounded-xl">
+                  <div className="flex items-center gap-4 bg-emerald-500/10 border border-emerald-500/20 px-5 py-2.5 rounded-xl w-full md:w-auto justify-between md:justify-end">
                     <span className="text-emerald-400/80 text-xs uppercase tracking-wider font-bold">Grand Total</span>
                     <span className="text-xl md:text-2xl font-black text-emerald-400 tracking-tight">₹{formatIndianAmount(totalRegisterAmount)}</span>
                   </div>
