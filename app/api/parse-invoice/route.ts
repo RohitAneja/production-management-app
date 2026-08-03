@@ -44,56 +44,48 @@ export async function POST(req: Request) {
     }
 
     // ==========================================
-    // AI-SIMULATION "ANCHOR CHUNKING" PARSER
+    // HYBRID EXTRACTION LOGIC
     // ==========================================
-    // This explicitly mimics human/AI reading behavior. Find the keyword, 
-    // grab the next 150 characters, and extract the expected shape.
-
-    const getChunkAfter = (keyword: string) => {
-      const idx = rawText.toLowerCase().indexOf(keyword.toLowerCase());
-      return idx !== -1 ? rawText.substring(idx + keyword.length, idx + keyword.length + 150) : "";
-    };
 
     // 1. EXTRACT INVOICE NUMBER
-    let invoiceNo = "UNKNOWN";
-    const billChunk = getChunkAfter("bill no");
-    // Grabs the first real sequence of letters, numbers, slashes, or dashes
-    const billMatch = billChunk.match(/([A-Z0-9][A-Z0-9\/\-]+)/i);
-    if (billMatch) invoiceNo = billMatch[1];
+    const invoiceMatch = rawText.match(/Bill No\.\s*([A-Z0-9\/\-]+)/i);
+    let invoiceNo = invoiceMatch ? invoiceMatch[1].trim() : "UNKNOWN";
+    if (invoiceNo.toLowerCase() === "no" || invoiceNo.toLowerCase() === "unit") {
+        const backupMatch = rawText.match(/(TI\/[0-9]{2}-[0-9]{2}\/[0-9]+)/i);
+        invoiceNo = backupMatch ? backupMatch[1] : "UNKNOWN";
+    }
 
     // 2. EXTRACT DATE
+    const dateMatch = rawText.match(/Dated[\s\S]*?(\d{2}\/\d{2}\/\d{4})/i) || rawText.match(/(\d{2}\/\d{2}\/\d{4})/);
     let formattedDate = new Date().toISOString().split('T')[0];
-    const dateChunk = getChunkAfter("dated");
-    // Strictly looks for DD/MM/YYYY in the chunk following the word "Dated"
-    const dateMatch = dateChunk.match(/(\d{2})\/(\d{2})\/(\d{4})/);
-    if (dateMatch) {
-      // Reformat to YYYY-MM-DD for SQL
-      formattedDate = `${dateMatch[3]}-${dateMatch[2]}-${dateMatch[1]}`;
+    if (dateMatch && dateMatch[1]) {
+      const [day, month, year] = dateMatch[1].split('/');
+      formattedDate = `${year}-${month}-${day}`;
     }
 
     // 3. EXTRACT ACCOUNT
-    let mainAccount = "Unknown Customer";
-    const msChunk = getChunkAfter("m/s");
-    if (msChunk) {
-      // Strips leading colons/spaces/quotes, grabs everything until the first line break
-      mainAccount = msChunk.replace(/^[\s":\.]+/, '').split(/[\r\n]+/)[0].trim();
-    }
+    const customerMatch = rawText.match(/M\/S\s+([^\r\n]+)/i);
+    let mainAccount = customerMatch ? customerMatch[1].replace(/['"]/g, '').trim() : "Unknown Customer";
 
-    // 4. EXTRACT TRANSPORT (Fixes the unnecessary '::')
-    let transport: string | null = null;
-    const transChunk = getChunkAfter("transport");
-    if (transChunk) {
-       // Strips leading colons/spaces/quotes, grabs everything until the first line break
-       transport = transChunk.replace(/^[\s":\.]+/, '').split(/[\r\n]+/)[0].trim();
-    }
+    // 4. EXTRACT TRANSPORT
+    const transportMatch = rawText.match(/Transport:*\s*([^\r\n]+)/i);
+    let transport = transportMatch ? transportMatch[1].replace(/[:'"]/g, '').trim() : "";
 
-    // 5. EXTRACT GRAND TOTAL (Exactly as requested!)
+    // 5. EXTRACT GRAND TOTAL (The "Maximum Amount" Strategy)
     let amountVal = 0;
-    const grandTotalChunk = getChunkAfter("grand total");
-    // Ignores all words, parentheses, and spaces to grab the first comma-separated decimal
-    const amountMatch = grandTotalChunk.match(/([\d,]+\.\d{2})/);
-    if (amountMatch) {
-      amountVal = parseFloat(amountMatch[1].replace(/,/g, ''));
+    
+    // Step A: Remove commas so "2,25,887.00" becomes "225887.00"
+    const noCommaText = rawText.replace(/,/g, ''); 
+    
+    // Step B: Find every single decimal number on the entire page
+    const allAmounts = noCommaText.match(/\d+\.\d{2}/g); 
+    
+    // Step C: Convert them to actual numbers and pick the absolute highest one!
+    if (allAmounts && allAmounts.length > 0) {
+        // Convert the string array to a number array
+        const numericAmounts = allAmounts.map(val => parseFloat(val));
+        // Use JavaScript's Math.max to instantly find the highest value
+        amountVal = Math.max(...numericAmounts);
     }
 
     // Construct the final data object for the database
