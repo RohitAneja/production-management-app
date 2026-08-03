@@ -82,7 +82,10 @@ export default function Dashboard({
   const [isLoadingPending, setIsLoadingPending] = useState(false);
   const [pendingSearchQuery, setPendingSearchQuery] = useState("");
   
-  const builtyInputRef = useRef<HTMLInputElement>(null);
+  // NEW: Split Refs for Camera and Gallery
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const galleryInputRef = useRef<HTMLInputElement>(null);
+  
   const [builtyFile, setBuiltyFile] = useState<File | null>(null);
   const [isParsingBuilty, setIsParsingBuilty] = useState(false);
   const [builtyStatus, setBuiltyStatus] = useState({ type: "", text: "" });
@@ -237,9 +240,8 @@ export default function Dashboard({
     return String(fieldValue).toLowerCase().includes(query.toLowerCase());
   };
 
-  // NEW: WhatsApp Sharing Logic
   const shareOnWhatsApp = (inv: any, e?: React.MouseEvent) => {
-    if (e) e.stopPropagation(); // Prevents clicking the row and opening the modal simultaneously
+    if (e) e.stopPropagation(); 
     
     const partyName = inv.sub_account ? `${inv.sub_account} c/o ${inv.main_account}` : inv.main_account;
     const cases = inv.num_of_cases ? `${inv.num_of_cases} ${inv.packing_type}` : 'N/A';
@@ -320,7 +322,10 @@ export default function Dashboard({
         setBuiltyStatus({ type: "error", text: "Server connection failed. Please try again." });
       }
       setIsParsingBuilty(false);
-      if (builtyInputRef.current) builtyInputRef.current.value = "";
+      
+      // Reset both inputs so they can be clicked again
+      if (cameraInputRef.current) cameraInputRef.current.value = "";
+      if (galleryInputRef.current) galleryInputRef.current.value = "";
     }
   };
 
@@ -914,33 +919,56 @@ export default function Dashboard({
                     <p className="text-sm text-slate-500 hidden md:block">Invoices awaiting LR Number & Date integration.</p>
                   </div>
                   
-                  <div className="flex items-center gap-3 w-full md:w-auto">
+                  <div className="flex flex-col md:flex-row items-stretch md:items-center gap-3 w-full md:w-auto">
                     <div className="relative flex-1 md:w-64">
                       <svg className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
                       <input 
                         type="text" 
-                        placeholder="Search pending invoices..." 
+                        placeholder="Search pending..." 
                         value={pendingSearchQuery} 
                         onChange={(e) => setPendingSearchQuery(e.target.value)} 
                         className="w-full pl-9 pr-4 h-11 shrink-0 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium transition-all" 
                       />
                     </div>
-                    {/* REMOVED capture="environment" to allow Gallery + Camera choice */}
-                    <input 
-                       type="file" 
-                       accept="image/*" 
-                       className="hidden" 
-                       ref={builtyInputRef} 
-                       onChange={handleBuiltyUploadChange}
-                    />
-                    <button 
-                       onClick={() => builtyInputRef.current?.click()}
-                       disabled={isParsingBuilty}
-                       className="flex shrink-0 bg-blue-600 text-white px-4 h-11 rounded-xl text-sm font-bold shadow-md hover:bg-blue-700 transition-colors items-center gap-2 disabled:opacity-50"
-                    >
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"></path><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
-                      <span className="hidden md:block">{isParsingBuilty ? "Scanning..." : "Upload Builty"}</span>
-                    </button>
+                    
+                    {/* CAMERA AND GALLERY BUTTONS */}
+                    <div className="flex items-center gap-2">
+                        {/* Hidden Input for Camera */}
+                        <input 
+                           type="file" 
+                           accept="image/*" 
+                           capture="environment" 
+                           className="hidden" 
+                           ref={cameraInputRef} 
+                           onChange={handleBuiltyUploadChange}
+                        />
+                        {/* Hidden Input for Gallery */}
+                        <input 
+                           type="file" 
+                           accept="image/*" 
+                           className="hidden" 
+                           ref={galleryInputRef} 
+                           onChange={handleBuiltyUploadChange}
+                        />
+                        
+                        <button 
+                           onClick={() => cameraInputRef.current?.click()}
+                           disabled={isParsingBuilty}
+                           className="flex-1 md:flex-none justify-center bg-blue-600 text-white px-3 md:px-4 h-11 rounded-xl text-sm font-bold shadow-md hover:bg-blue-700 transition-colors flex items-center gap-2 disabled:opacity-50"
+                        >
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"></path><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                          <span>{isParsingBuilty ? "Wait..." : "Camera"}</span>
+                        </button>
+                        
+                        <button 
+                           onClick={() => galleryInputRef.current?.click()}
+                           disabled={isParsingBuilty}
+                           className="flex-1 md:flex-none justify-center bg-slate-100 text-slate-700 border border-slate-200 px-3 md:px-4 h-11 rounded-xl text-sm font-bold shadow-sm hover:bg-slate-200 transition-colors flex items-center gap-2 disabled:opacity-50"
+                        >
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                          <span>{isParsingBuilty ? "Wait..." : "Gallery"}</span>
+                        </button>
+                    </div>
                   </div>
                 </div>
                 
@@ -1059,6 +1087,7 @@ export default function Dashboard({
             <div className="flex-1 flex flex-col bg-white md:bg-white/95 md:backdrop-blur-xl rounded-none md:rounded-2xl shadow-none md:shadow-xl border-none md:border md:border-white overflow-hidden animate-fade-in relative">
               <div className="flex-1 flex flex-col h-full relative">
                 
+                {/* Header & Search Bar */}
                 <div className="p-4 md:p-6 border-b border-slate-100 bg-white/70 backdrop-blur-md sticky top-0 z-20 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 shrink-0">
                   <div>
                     <h2 className="text-xl md:text-2xl font-bold text-slate-900">Invoice Register</h2>
@@ -1205,10 +1234,10 @@ export default function Dashboard({
                                         className="text-indigo-600 hover:text-indigo-800 p-2 rounded-lg hover:bg-indigo-100 transition-colors"
                                         title="View Builty Photo"
                                       >
-                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"></path></svg>
+                                        <svg className="w-5 h-5 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"></path></svg>
                                       </button>
                                     ) : (
-                                      <div className="w-9 h-9" /> /* Spacing block so alignment stays clean when no builty */
+                                      <div className="w-9 h-9" />
                                     )}
                                   </div>
                                 </td>
