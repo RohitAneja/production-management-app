@@ -64,7 +64,6 @@ export async function POST(req: Request) {
     }
 
     // 3. EXTRACT ACCOUNTS (Main and Sub Account with Lookahead)
-    // The (?=\s*M\/S|[\r\n]|$) tells it to STOP grabbing if it sees another "M/S" on the same line!
     const customerMatches = [...rawText.matchAll(/M\/S\s+(.*?)(?=\s*M\/S|[\r\n]|$)/ig)];
     let mainAccount = "Unknown Customer";
     let subAccount = null;
@@ -80,7 +79,25 @@ export async function POST(req: Request) {
     const transportMatch = rawText.match(/Transport:*\s*([^\r\n]+)/i);
     let transport = transportMatch ? transportMatch[1].replace(/[:'"]/g, '').trim() : "";
 
-    // 5. EXTRACT GRAND TOTAL
+    // 5. EXTRACT PVT. MARKA (Cases & Packing Type)
+    let numOfCases = null;
+    let packingType = "Carton"; // Default fallback
+    
+    // Finds the line starting with "Pvt. marka"
+    const markaMatch = rawText.match(/Pvt\.?\s*marka[:\s]*([^\r\n]+)/i);
+    if (markaMatch && markaMatch[1]) {
+        const markaLine = markaMatch[1].trim();
+        // Slices the line at the slash (/) to grab the digits and the text following it
+        const slashMatch = markaLine.match(/\/\s*(\d+)\s*(.*)/i);
+        if (slashMatch) {
+            numOfCases = parseInt(slashMatch[1], 10);
+            if (slashMatch[2]) {
+                packingType = slashMatch[2].replace(/['"]/g, '').trim();
+            }
+        }
+    }
+
+    // 6. EXTRACT GRAND TOTAL (Maximum Amount Strategy)
     let amountVal = 0;
     const noCommaText = rawText.replace(/,/g, ''); 
     const allAmounts = noCommaText.match(/\d+\.\d{2}/g); 
@@ -96,8 +113,8 @@ export async function POST(req: Request) {
       invoice_no: invoiceNo,
       main_account: mainAccount,
       sub_account: subAccount,
-      num_of_cases: null, 
-      packing_type: "Carton", 
+      num_of_cases: numOfCases, 
+      packing_type: packingType, 
       amount: amountVal,
       transport: transport,
       lr_number: null,
