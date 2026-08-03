@@ -1,8 +1,10 @@
 import { NextResponse } from 'next/server';
-import pdfParse from 'pdf-parse';
 
 export async function POST(req: Request) {
   try {
+    // 1. FIXED IMPORT: We use 'require' inside the function to bypass Vercel/Turbopack build errors
+    const pdfParse = require('pdf-parse');
+    
     const formData = await req.formData();
     const file = formData.get('file') as File;
     const expectedCompany = formData.get('company_name') as string;
@@ -19,26 +21,21 @@ export async function POST(req: Request) {
     const data = await pdfParse(buffer);
     const pdfText = data.text;
 
-    // 1. VERIFY COMPANY NAME
-    // Check if the expected company name exists anywhere in the PDF text (case insensitive)
+    // 2. VERIFY COMPANY NAME
     if (!pdfText.toLowerCase().includes(expectedCompany.toLowerCase())) {
       return NextResponse.json({ 
         error: `Company Match Failed: Could not find '${expectedCompany}' in this document.` 
       }, { status: 400 });
     }
 
-    // 2. EXTRACT DATA (Regex / Parsing Logic)
-    // *NOTE*: Since every company's invoice layout is different, extracting exact fields 
-    // using code requires complex Regex. For now, we simulate extraction with smart placeholders 
-    // so you can see the flow. In a real enterprise app, you would plug OpenAI or Google Document AI here.
-    
+    // 3. EXTRACT DATA (Simulated parsing placeholders)
     const invoiceData = {
       date: new Date().toISOString().split('T')[0], 
-      invoice_no: "INV-" + Math.floor(Math.random() * 90000 + 10000), // Simulated extraction
+      invoice_no: "INV-" + Math.floor(Math.random() * 90000 + 10000),
       main_account: "General Supplier",
       sub_account: "Raw Materials",
       num_of_cases: Math.floor(Math.random() * 50 + 1),
-      packing_type: "Carton", // Must match your SQL Check constraint ('Carton', 'Small Carton', 'Bora', 'Tender')
+      packing_type: "Carton", 
       amount: parseFloat((Math.random() * 50000).toFixed(2)),
       transport: "FastTrack Logistics",
       lr_number: "LR-" + Math.floor(Math.random() * 900000),
