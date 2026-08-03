@@ -338,11 +338,12 @@ export default function Dashboard({
 
        // 3. Update the Invoice Database Row
        const { error: dbErr } = await supabase.from('invoices').update({
-           lr_number: builtyForm.lr_number,
-           lr_date: builtyForm.lr_date,
-           builty_image_url: imageUrl // Saving reference to photo
+           lr_number: builtyForm.lr_number || null, // Sends null if empty
+           lr_date: builtyForm.lr_date || null,     // Prevents Postgres Date crash
+           builty_image_url: imageUrl               // Saving reference to photo
        }).eq('invoice_no', matchedInvoice.invoice_no);
 
+       
        if (dbErr) throw dbErr;
 
        // 4. Trigger Local Device Download
