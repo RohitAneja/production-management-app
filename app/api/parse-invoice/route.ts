@@ -1,8 +1,7 @@
 import { NextResponse } from 'next/server';
+import { PDFParse } from 'pdf-parse';
 
 // --- VERCEL SERVER POLYFILLS ---
-// The PDF parser expects a web browser environment. We must create dummy versions
-// of these browser objects so Vercel's Node.js server doesn't crash during the build.
 if (typeof global.DOMMatrix === 'undefined') {
   (global as any).DOMMatrix = class DOMMatrix {};
 }
@@ -12,9 +11,6 @@ if (typeof global.ImageData === 'undefined') {
 if (typeof global.Path2D === 'undefined') {
   (global as any).Path2D = class Path2D {};
 }
-
-// Now we can safely load the library without it crashing the Vercel build
-const pdfParse = require('pdf-parse');
 
 export async function POST(req: Request) {
   try {
@@ -26,13 +22,17 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "No file uploaded" }, { status: 400 });
     }
 
-    // Convert the uploaded file into a buffer the PDF parser can read
     const arrayBuffer = await file.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
     
-    // Extract text from the PDF
-    const data = await pdfParse(buffer);
+    // Initialize the class and extract the text
+    const parser = new PDFParse({ data: buffer });
+    const data = await parser.getText();
     const pdfText = data.text || "";
+
+    if (typeof parser.destroy === 'function') {
+      await parser.destroy();
+    }
 
     // VERIFY COMPANY NAME
     if (expectedCompany && !pdfText.toLowerCase().includes(expectedCompany.toLowerCase())) {
@@ -41,18 +41,53 @@ export async function POST(req: Request) {
       }, { status: 400 });
     }
 
-    // EXTRACT DATA (Simulated parsing placeholders)
+    // ==========================================
+    // HYPER-PRECISE DATA EXTRACTION
+    // ==========================================
+    
+    // 1. Extract Invoice Number
+    // [^\w]* skips any random spaces or dots between "Bill No" and the actual alphanumeric ID
+    const invoiceNoMatch = pdfText.match(/Bill No\.[^\w]*([A-Z0-9\/\-]+)/i);
+    const invoiceNo = invoiceNoMatch ? invoiceNoMatch[1].trim() : "UNKNOWN";
+
+    // 2. Extract Date
+    // [^\d]* skips any hidden line breaks or spaces until it hits the exact DD/MM/YYYY format
+    const dateMatch = pdfText.match(/Dated[^\d]*(\d{2}\/\d{2}\/\d{4})/i);
+    let formattedDate = new Date().toISOString().split('T')[0]; // Default to today
+    if (dateMatch && dateMatch[1]) {
+      const [day, month, year] = dateMatch[1].split('/');
+      formattedDate = `${year}-${month}-${day}`;
+    }
+
+    // 3. Extract Customer Name (Main Account)
+    // [^"\r\n]+ grabs everything until the line ends or it hits a hidden quote mark
+    const customerMatch = pdfText.match(/M\/S\s+([^"\r\n]+)/i);
+    const mainAccount = customerMatch ? customerMatch[1].trim() : "Unknown Customer";
+
+    // 4. Extract Transport
+    const transportMatch = pdfText.match(/Transport:+\s*([^"\r\n]+)/i);
+    const transport = transportMatch ? transportMatch[1].trim() : null;
+
+    // 5. Extract Grand Total Amount 
+    // [^\d]* ignores the " (Rs.)" text, newlines, and quotes, jumping straight to the exact decimal value
+    const amountMatch = pdfText.match(/Grand Total[^\d]*([\d,]+\.\d{2})/i);
+    let amountVal = 0;
+    if (amountMatch && amountMatch[1]) {
+      amountVal = parseFloat(amountMatch[1].replace(/,/g, ''));
+    }
+
+    // Construct the final data object for the database
     const invoiceData = {
-      date: new Date().toISOString().split('T')[0], 
-      invoice_no: "INV-" + Math.floor(Math.random() * 90000 + 10000),
-      main_account: "General Supplier",
-      sub_account: "Raw Materials",
-      num_of_cases: Math.floor(Math.random() * 50 + 1),
+      date: formattedDate, 
+      invoice_no: invoiceNo,
+      main_account: mainAccount,
+      sub_account: null,
+      num_of_cases: null, 
       packing_type: "Carton", 
-      amount: parseFloat((Math.random() * 50000).toFixed(2)),
-      transport: "FastTrack Logistics",
-      lr_number: "LR-" + Math.floor(Math.random() * 900000),
-      lr_date: new Date().toISOString().split('T')[0]
+      amount: amountVal,
+      transport: transport,
+      lr_number: null,
+      lr_date: null
     };
 
     return NextResponse.json({ success: true, data: invoiceData, filename: file.name });

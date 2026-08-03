@@ -1,7 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  // This is the magic line! It tells Next.js NOT to scramble the PDF library.
+  serverExternalPackages: ["pdf-parse"],
 };
 
 export default nextConfig;

@@ -240,6 +240,11 @@ export default function Dashboard({
     setScannedInvoices(results);
     setUploadStatus({ type: "success", text: `Successfully scanned ${results.length} invoice(s). Please review and save.` });
     setIsScanning(false);
+
+    // AUTO SCROLL FEATURE
+    setTimeout(() => {
+      document.getElementById("preview-section")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 200);
   };
 
   const saveInvoicesToDatabase = async () => {
@@ -296,7 +301,6 @@ export default function Dashboard({
             return;
           }
 
-          // FIX: explicitly declared as any[] and added 'id: undefined' so TypeScript knows it exists
           const formattedData: any[] = jsonData.map((row: any) => ({
             id: undefined, 
             date: row.date || row.Date || row.DATE,
@@ -335,15 +339,12 @@ export default function Dashboard({
             const existing = existingInvoices?.find(e => e.invoice_no === row.invoice_no);
 
             if (existing) {
-              // Rule 1: If it exists AND LR number is present -> SKIP
               if (existing.lr_number && existing.lr_number.trim() !== '') {
                 skippedCount++;
                 continue;
               }
-              // Rule 2: If it exists but NO LR number -> Grab its ID to Overwrite/Update it
-              row.id = existing.id; // TypeScript will no longer flag this as an error!
+              row.id = existing.id;
             }
-            // Rule 3: If it doesn't exist -> Insert it (Supabase will auto-generate ID)
             rowsToUpsert.push(row);
           }
 
@@ -410,10 +411,14 @@ export default function Dashboard({
     <div className="h-screen w-full flex overflow-hidden font-sans bg-slate-50 text-slate-900">
       
       {/* SIDEBAR */}
-      <aside className={`${isSidebarOpen ? 'w-64 border-r border-slate-200' : 'w-0 border-r-0'} bg-white transition-all duration-300 flex flex-col z-40 shadow-[4px_0_24px_rgba(0,0,0,0.02)] shrink-0 overflow-hidden`}>
+      <aside 
+        onMouseEnter={() => !isVerticalMode && setIsSidebarOpen(true)}
+        onMouseLeave={() => !isVerticalMode && setIsSidebarOpen(false)}
+        className={`${isSidebarOpen ? 'w-64 border-r border-slate-200' : 'w-0 border-r-0'} bg-white transition-all duration-300 flex flex-col z-40 shadow-[4px_0_24px_rgba(0,0,0,0.02)] shrink-0 overflow-hidden absolute md:relative h-full`}
+      >
         <div className="w-64 flex flex-col h-full shrink-0">
           <div onClick={goHome} className="h-16 flex items-center justify-center border-b border-slate-100 p-2 cursor-pointer hover:bg-slate-50 transition-colors shrink-0">
-            <img src={company.logo_url || "/logo.png"} alt="Company Logo" className="object-contain h-10 transition-all duration-300" />
+            <img src="/logo.png" alt="Company Logo" className="object-contain h-10 transition-all duration-300" />
           </div>
           <nav className="flex-1 py-4 flex flex-col gap-2 px-3 overflow-y-auto">
             {menuOptions.map((item: any) => (
@@ -451,9 +456,14 @@ export default function Dashboard({
       {/* MAIN CONTENT AREA */}
       <main className="flex-1 flex flex-col relative bg-[url('/bg-mobile.jpg')] md:bg-[url('/bg-desktop.jpg')] bg-cover bg-center bg-no-repeat bg-blend-overlay bg-white/90 overflow-y-auto">
         <header className="h-16 bg-white/70 backdrop-blur-md border-b border-slate-200/50 flex justify-between items-center px-4 md:px-8 shadow-sm shrink-0 z-10">
-          <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="p-2 text-slate-500 hover:text-slate-900 hover:bg-white/50 rounded-lg transition-colors">
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
-          </button>
+          <div className="flex items-center gap-4">
+            <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="p-2 text-slate-500 hover:text-slate-900 hover:bg-white/50 rounded-lg transition-colors">
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
+            </button>
+            <h1 className="text-slate-400 font-bold hidden md:block">
+              {isVerticalMode ? (isSidebarOpen ? "Select" : "Select") : (isSidebarOpen ? "Select an option from the menu" : "Select an option from the menu")}
+            </h1>
+          </div>
           <div className="relative">
             <div onClick={() => setIsProfileOpen(!isProfileOpen)} className="flex items-center gap-3 cursor-pointer p-1 pr-3 rounded-full hover:bg-white/50 transition-colors border border-transparent hover:border-slate-200">
               <div className="w-9 h-9 bg-blue-100 text-blue-700 rounded-full flex items-center justify-center font-bold text-sm border border-blue-200">{username.charAt(0).toUpperCase()}</div>
@@ -478,194 +488,204 @@ export default function Dashboard({
         {/* FULL SCREEN DYNAMIC VIEWS */}
         <div className="flex-1 flex flex-col p-0 md:p-6 overflow-hidden">
 
-          {/* UPLOAD INVOICES VIEW (Updated with Split Upload Layout) */}
+          {/* UPLOAD INVOICES VIEW - SCROLL FIX APPLIED HERE */}
           {activeView === "upload_invoices" && (
-            <div className="flex-1 flex flex-col bg-white md:bg-white/95 md:backdrop-blur-xl rounded-none md:rounded-2xl shadow-none md:shadow-xl border-none md:border md:border-white overflow-hidden animate-fade-in overflow-y-auto">
-              <div className="p-5 md:p-6 border-b border-slate-100 bg-white/50 shrink-0">
-                <h2 className="text-xl md:text-2xl font-bold text-slate-900">Upload Invoices</h2>
-                <p className="text-sm text-slate-500">Add invoices via AI PDF Scan or Bulk Excel Upload.</p>
-              </div>
+            <div className="flex-1 flex flex-col bg-white md:bg-white/95 md:backdrop-blur-xl rounded-none md:rounded-2xl shadow-none md:shadow-xl border-none md:border md:border-white overflow-hidden animate-fade-in relative">
               
-              <div className="p-6 grid grid-cols-1 lg:grid-cols-2 gap-6 shrink-0 border-b border-slate-100">
-                {/* 1. PDF UPLOAD CARD */}
-                <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5 md:p-6 flex flex-col">
-                  <h3 className="text-lg font-bold text-slate-800 mb-1">1. AI PDF Scanner</h3>
-                  <p className="text-xs text-slate-500 mb-5">Select single or multiple PDF invoices. The system matches your company name and extracts data automatically.</p>
-                  
-                  <input 
-                    type="file" 
-                    accept="application/pdf" 
-                    multiple 
-                    ref={fileInputRef}
-                    onChange={handleFileChange}
-                    className="block w-full text-sm text-slate-500 file:mr-4 file:py-2.5 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-bold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 transition-colors mb-4"
-                  />
-                  
-                  <div className="mt-auto pt-2">
-                    <button 
-                      onClick={scanInvoices}
-                      disabled={selectedFiles.length === 0 || isScanning || isProcessingExcel}
-                      className="w-full bg-slate-800 text-white px-6 py-2.5 rounded-xl text-sm font-bold shadow-md hover:bg-slate-900 transition-colors disabled:opacity-50"
-                    >
-                      {isScanning && scannedInvoices.length === 0 ? "Scanning PDFs..." : "Scan PDF Files"}
-                    </button>
-                  </div>
-                  {uploadStatus.text && (
-                    <div className={`mt-4 p-3 rounded-xl text-xs font-semibold border ${uploadStatus.type === "error" ? "bg-red-50 text-red-700 border-red-100" : uploadStatus.type === "success" ? "bg-emerald-50 text-emerald-700 border-emerald-100" : "bg-blue-50 text-blue-700 border-blue-100 animate-pulse"}`}>
-                      {uploadStatus.text}
+              {/* THE SCROLL FIX: This ensures you can scroll down to see the table! */}
+              <div className="flex-1 overflow-y-auto pb-12">
+                
+                <div className="p-5 md:p-6 border-b border-slate-100 bg-white/50 sticky top-0 z-10">
+                  <h2 className="text-xl md:text-2xl font-bold text-slate-900">Upload Invoices</h2>
+                  <p className="text-sm text-slate-500">Add invoices via AI PDF Scan or Bulk Excel Upload.</p>
+                </div>
+                
+                <div className="p-6 grid grid-cols-1 lg:grid-cols-2 gap-6 border-b border-slate-100">
+                  {/* 1. PDF UPLOAD CARD */}
+                  <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5 md:p-6 flex flex-col">
+                    <h3 className="text-lg font-bold text-slate-800 mb-1">1. AI PDF Scanner</h3>
+                    <p className="text-xs text-slate-500 mb-5">Select single or multiple PDF invoices. The system matches your company name and extracts data automatically.</p>
+                    
+                    <input 
+                      type="file" 
+                      accept="application/pdf" 
+                      multiple 
+                      ref={fileInputRef}
+                      onChange={handleFileChange}
+                      className="block w-full text-sm text-slate-500 file:mr-4 file:py-2.5 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-bold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 transition-colors mb-4"
+                    />
+                    
+                    <div className="mt-auto pt-2">
+                      <button 
+                        onClick={scanInvoices}
+                        disabled={selectedFiles.length === 0 || isScanning || isProcessingExcel}
+                        className="w-full bg-slate-800 text-white px-6 py-2.5 rounded-xl text-sm font-bold shadow-md hover:bg-slate-900 transition-colors disabled:opacity-50"
+                      >
+                        {isScanning && scannedInvoices.length === 0 ? "Scanning PDFs..." : "Scan PDF Files"}
+                      </button>
                     </div>
-                  )}
+                    {uploadStatus.text && (
+                      <div className={`mt-4 p-3 rounded-xl text-xs font-semibold border ${uploadStatus.type === "error" ? "bg-red-50 text-red-700 border-red-100" : uploadStatus.type === "success" ? "bg-emerald-50 text-emerald-700 border-emerald-100" : "bg-blue-50 text-blue-700 border-blue-100 animate-pulse"}`}>
+                        {uploadStatus.text}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* 2. EXCEL BULK UPLOAD CARD */}
+                  <div className="bg-emerald-50/50 border border-emerald-100 rounded-2xl p-5 md:p-6 flex flex-col">
+                    <h3 className="text-lg font-bold text-emerald-800 mb-1">2. Bulk Excel Sync</h3>
+                    <p className="text-xs text-emerald-600/80 mb-5">Upload an Excel/CSV file containing Columns: <span className="font-bold text-emerald-700">Invoice No, Date, Main Account, Sub Account, Num of Cases, Packing Type, Amount, Transport, LR Number, LR Date</span>.</p>
+                    
+                    <input 
+                      type="file" 
+                      accept=".csv, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel"
+                      ref={excelInputRef}
+                      onChange={handleExcelFileChange}
+                      className="block w-full text-sm text-emerald-700 file:mr-4 file:py-2.5 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-bold file:bg-emerald-100 file:text-emerald-800 hover:file:bg-emerald-200 transition-colors mb-4"
+                    />
+                    
+                    <div className="mt-auto pt-2">
+                      <button 
+                        onClick={processExcelUpload}
+                        disabled={!excelFile || isProcessingExcel || isScanning}
+                        className="w-full bg-emerald-600 text-white px-6 py-2.5 rounded-xl text-sm font-bold shadow-md hover:bg-emerald-700 transition-colors disabled:opacity-50"
+                      >
+                        {isProcessingExcel ? "Processing Spreadsheet..." : "Upload & Sync Database"}
+                      </button>
+                    </div>
+                    {excelStatus.text && (
+                      <div className={`mt-4 p-3 rounded-xl text-xs font-semibold border ${excelStatus.type === "error" ? "bg-red-50 text-red-700 border-red-100" : excelStatus.type === "success" ? "bg-emerald-50 text-emerald-700 border-emerald-100" : "bg-emerald-100 text-emerald-800 border-emerald-200 animate-pulse"}`}>
+                        {excelStatus.text}
+                      </div>
+                    )}
+                  </div>
                 </div>
 
-                {/* 2. EXCEL BULK UPLOAD CARD */}
-                <div className="bg-emerald-50/50 border border-emerald-100 rounded-2xl p-5 md:p-6 flex flex-col">
-                  <h3 className="text-lg font-bold text-emerald-800 mb-1">2. Bulk Excel Sync</h3>
-                  <p className="text-xs text-emerald-600/80 mb-5">Upload an Excel/CSV file containing Columns: <span className="font-bold text-emerald-700">Invoice No, Date, Main Account, Sub Account, Num of Cases, Packing Type, Amount, Transport, LR Number, LR Date</span>.</p>
-                  
-                  <input 
-                    type="file" 
-                    accept=".csv, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel"
-                    ref={excelInputRef}
-                    onChange={handleExcelFileChange}
-                    className="block w-full text-sm text-emerald-700 file:mr-4 file:py-2.5 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-bold file:bg-emerald-100 file:text-emerald-800 hover:file:bg-emerald-200 transition-colors mb-4"
-                  />
-                  
-                  <div className="mt-auto pt-2">
-                    <button 
-                      onClick={processExcelUpload}
-                      disabled={!excelFile || isProcessingExcel || isScanning}
-                      className="w-full bg-emerald-600 text-white px-6 py-2.5 rounded-xl text-sm font-bold shadow-md hover:bg-emerald-700 transition-colors disabled:opacity-50"
-                    >
-                      {isProcessingExcel ? "Processing Spreadsheet..." : "Upload & Sync Database"}
-                    </button>
-                  </div>
-                  {excelStatus.text && (
-                    <div className={`mt-4 p-3 rounded-xl text-xs font-semibold border ${excelStatus.type === "error" ? "bg-red-50 text-red-700 border-red-100" : excelStatus.type === "success" ? "bg-emerald-50 text-emerald-700 border-emerald-100" : "bg-emerald-100 text-emerald-800 border-emerald-200 animate-pulse"}`}>
-                      {excelStatus.text}
+                {/* PDF SCANNED INVOICES PREVIEW - Anchored with an ID so we can auto-scroll to it */}
+                {scannedInvoices.length > 0 && (
+                  <div id="preview-section" className="p-6 bg-slate-50/50 min-h-[400px]">
+                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
+                      <div>
+                        <h3 className="text-xl font-bold text-slate-800">Scanned Results Preview</h3>
+                        <p className="text-sm text-slate-500">Verify the extracted data below before saving.</p>
+                      </div>
+                      <button 
+                        onClick={saveInvoicesToDatabase}
+                        disabled={isScanning}
+                        className="w-full md:w-auto bg-emerald-600 text-white px-8 py-3 rounded-xl text-sm font-bold shadow-md hover:bg-emerald-700 transition-colors disabled:opacity-50"
+                      >
+                        {isScanning ? "Saving..." : "Confirm & Save to Database"}
+                      </button>
                     </div>
-                  )}
-                </div>
-              </div>
-
-              {/* PDF SCANNED INVOICES PREVIEW (only appears after PDF scan) */}
-              {scannedInvoices.length > 0 && (
-                <div className="flex-1 flex flex-col overflow-hidden p-6 pt-6">
-                  <div className="flex justify-between items-center mb-4 shrink-0">
-                    <h3 className="font-bold text-slate-800">Scanned PDF Results Preview</h3>
-                    <button 
-                      onClick={saveInvoicesToDatabase}
-                      disabled={isScanning}
-                      className="bg-emerald-600 text-white px-6 py-2.5 rounded-xl text-sm font-bold shadow-md hover:bg-emerald-700 transition-colors disabled:opacity-50"
-                    >
-                      {isScanning ? "Saving..." : "Confirm & Save to Database"}
-                    </button>
-                  </div>
-                  
-                  <div className="flex-1 overflow-x-auto overflow-y-auto border border-slate-200 rounded-xl">
-                    <table className="w-full text-left border-collapse min-w-[1000px]">
-                      <thead className="bg-slate-50 sticky top-0 z-10 shadow-sm">
-                        <tr className="text-slate-500 text-xs uppercase tracking-wider font-bold">
-                          <th className="p-3 pl-4">File Name</th>
-                          <th className="p-3">Inv No</th>
-                          <th className="p-3">Date</th>
-                          <th className="p-3">Account</th>
-                          <th className="p-3">Amount</th>
-                          <th className="p-3">LR No</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100 bg-white">
-                        {scannedInvoices.map((inv, idx) => (
-                          <tr key={idx} className="hover:bg-slate-50 transition-colors">
-                            <td className="p-3 pl-4 text-sm font-medium text-slate-700 truncate max-w-[150px]">{inv.source_file}</td>
-                            <td className="p-3 text-sm font-bold text-slate-900">{inv.invoice_no}</td>
-                            <td className="p-3 text-sm text-slate-600">{inv.date}</td>
-                            <td className="p-3 text-sm text-slate-600">{inv.main_account}</td>
-                            <td className="p-3 text-sm font-bold text-emerald-600">₹{inv.amount}</td>
-                            <td className="p-3 text-sm text-slate-600">{inv.lr_number}</td>
+                    
+                    <div className="overflow-x-auto border border-slate-200 rounded-xl bg-white shadow-sm">
+                      <table className="w-full text-left border-collapse min-w-[1000px]">
+                        <thead className="bg-slate-100 border-b border-slate-200">
+                          <tr className="text-slate-600 text-xs uppercase tracking-wider font-bold">
+                            <th className="p-4 pl-6">File Name</th>
+                            <th className="p-4">Inv No</th>
+                            <th className="p-4">Date</th>
+                            <th className="p-4">Account</th>
+                            <th className="p-4">Amount</th>
+                            <th className="p-4">Transport</th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 bg-white">
+                          {scannedInvoices.map((inv, idx) => (
+                            <tr key={idx} className="hover:bg-slate-50 transition-colors">
+                              <td className="p-4 pl-6 text-sm font-medium text-slate-500 truncate max-w-[150px]">{inv.source_file}</td>
+                              <td className="p-4 text-sm font-bold text-slate-900">{inv.invoice_no}</td>
+                              <td className="p-4 text-sm text-slate-600">{inv.date}</td>
+                              <td className="p-4 text-sm font-semibold text-slate-700">{inv.main_account}</td>
+                              <td className="p-4 text-sm font-bold text-emerald-600">₹{inv.amount}</td>
+                              <td className="p-4 text-sm text-slate-600">{inv.transport}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
-                </div>
-              )}
+                )}
+              </div>
             </div>
           )}
 
           {/* USERS TABLE VIEW */}
           {activeView === "users" && (
-            <div className="flex-1 flex flex-col bg-white md:bg-white/95 md:backdrop-blur-xl rounded-none md:rounded-2xl shadow-none md:shadow-xl border-none md:border md:border-white overflow-hidden animate-fade-in">
-              <div className="p-5 md:p-6 border-b border-slate-100 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white/50">
-                <div>
-                  <h2 className="text-xl md:text-2xl font-bold text-slate-900">User Management</h2>
-                  <p className="text-sm text-slate-500">Manage factory staff, roles, and access.</p>
-                </div>
-                <div className="flex w-full md:w-auto items-center gap-3">
-                  <div className="relative w-full md:w-64">
-                    <svg className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
-                    <input type="text" placeholder="Search users..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-9 pr-4 h-12 shrink-0 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium transition-all" />
+            <div className="flex-1 flex flex-col bg-white md:bg-white/95 md:backdrop-blur-xl rounded-none md:rounded-2xl shadow-none md:shadow-xl border-none md:border md:border-white overflow-hidden animate-fade-in relative">
+              <div className="p-0 md:p-6 flex-1 flex flex-col">
+                <div className="p-5 md:p-0 border-b md:border-none border-slate-100 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white/50 md:bg-transparent mb-0 md:mb-6">
+                  <div>
+                    <h2 className="text-xl md:text-2xl font-bold text-slate-900">User Management</h2>
+                    <p className="text-sm text-slate-500">Manage factory staff, roles, and access.</p>
                   </div>
-                  <button onClick={openAddUserModal} className="flex shrink-0 bg-blue-600 text-white px-4 h-12 rounded-xl text-sm font-bold shadow-md hover:bg-blue-700 transition-colors items-center gap-2">
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"></path></svg>
-                    <span className="hidden md:block">Add User</span>
-                  </button>
-                </div>
-              </div>
-              
-              <div className="flex-1 overflow-x-auto overflow-y-auto">
-                {isLoadingUsers ? (
-                  <div className="flex justify-center items-center h-full">
-                    <div className="w-10 h-10 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin"></div>
+                  <div className="flex w-full md:w-auto items-center gap-3">
+                    <div className="relative w-full md:w-64">
+                      <svg className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                      <input type="text" placeholder="Search users..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-9 pr-4 h-12 shrink-0 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium transition-all" />
+                    </div>
+                    <button onClick={openAddUserModal} className="flex shrink-0 bg-blue-600 text-white px-4 h-12 rounded-xl text-sm font-bold shadow-md hover:bg-blue-700 transition-colors items-center gap-2">
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"></path></svg>
+                      <span className="hidden md:block">Add User</span>
+                    </button>
                   </div>
-                ) : (
-                  <table className="w-full text-left border-collapse min-w-[700px]">
-                    <thead className="bg-slate-50 sticky top-0 z-10 shadow-sm">
-                      <tr className="text-slate-500 text-xs uppercase tracking-wider font-bold">
-                        <th className="p-4 pl-6">S.No</th>
-                        <th className="p-4">Username</th>
-                        <th className="p-4">Role</th>
-                        <th className="p-4">Status</th>
-                        <th className="p-4">Mobile</th>
-                        <th className="p-4 text-center pr-6">Action</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100 bg-white">
-                      {filteredUsers.map((user, index) => {
-                        const roleName = Array.isArray(user.roles) ? user.roles[0]?.role_name : user.roles?.role_name;
-                        return (
-                          <tr key={user.id} className="hover:bg-blue-50/50 transition-colors group">
-                            <td className="p-4 pl-6 text-sm font-medium text-slate-500">{(index + 1).toString().padStart(2, '0')}</td>
-                            <td className="p-4">
-                              <div className="flex items-center gap-3">
-                                <div className="w-8 h-8 shrink-0 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center font-bold text-xs">{user.username.charAt(0).toUpperCase()}</div>
-                                <span className="text-sm font-bold text-slate-900">{user.username}</span>
-                              </div>
-                            </td>
-                            <td className="p-4">
-                              <span className={`px-3 py-1 rounded-full text-xs font-bold border ${roleName?.toUpperCase() === 'ADMIN' ? 'bg-purple-50 text-purple-700 border-purple-100' : 'bg-blue-50 text-blue-700 border-blue-100'}`}>
-                                {roleName || "Operator"}
-                              </span>
-                            </td>
-                            <td className="p-4">
-                              <span className={`px-3 py-1 rounded-full text-xs font-bold border ${user.user_status === 'active' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : user.user_status === 'hold' ? 'bg-amber-50 text-amber-700 border-amber-100' : 'bg-red-50 text-red-700 border-red-100'}`}>
-                                {user.user_status ? user.user_status.toUpperCase() : "ACTIVE"}
-                              </span>
-                            </td>
-                            <td className="p-4"><span className="text-sm font-medium text-slate-600">{user.mobile_number || "—"}</span></td>
-                            <td className="p-4 pr-6 text-center">
-                              <button onClick={() => openEditUserModal(user)} className="text-slate-400 hover:text-blue-600 p-2 rounded-lg hover:bg-blue-50 transition-colors opacity-70 group-hover:opacity-100">
-                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>
-                              </button>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                      {filteredUsers.length === 0 && !isLoadingUsers && (
-                        <tr><td colSpan={6} className="p-8 text-center text-slate-400 font-medium">{searchQuery ? `No users found matching "${searchQuery}"` : "No users found in database."}</td></tr>
-                      )}
-                    </tbody>
-                  </table>
-                )}
+                </div>
+                
+                <div className="flex-1 overflow-x-auto overflow-y-auto md:border border-slate-200 md:rounded-xl">
+                  {isLoadingUsers ? (
+                    <div className="flex justify-center items-center h-full">
+                      <div className="w-10 h-10 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin"></div>
+                    </div>
+                  ) : (
+                    <table className="w-full text-left border-collapse min-w-[700px]">
+                      <thead className="bg-slate-50 sticky top-0 z-10 shadow-sm">
+                        <tr className="text-slate-500 text-xs uppercase tracking-wider font-bold">
+                          <th className="p-4 pl-6">S.No</th>
+                          <th className="p-4">Username</th>
+                          <th className="p-4">Role</th>
+                          <th className="p-4">Status</th>
+                          <th className="p-4">Mobile</th>
+                          <th className="p-4 text-center pr-6">Action</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 bg-white">
+                        {filteredUsers.map((user, index) => {
+                          const roleName = Array.isArray(user.roles) ? user.roles[0]?.role_name : user.roles?.role_name;
+                          return (
+                            <tr key={user.id} className="hover:bg-blue-50/50 transition-colors group">
+                              <td className="p-4 pl-6 text-sm font-medium text-slate-500">{(index + 1).toString().padStart(2, '0')}</td>
+                              <td className="p-4">
+                                <div className="flex items-center gap-3">
+                                  <div className="w-8 h-8 shrink-0 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center font-bold text-xs">{user.username.charAt(0).toUpperCase()}</div>
+                                  <span className="text-sm font-bold text-slate-900">{user.username}</span>
+                                </div>
+                              </td>
+                              <td className="p-4">
+                                <span className={`px-3 py-1 rounded-full text-xs font-bold border ${roleName?.toUpperCase() === 'ADMIN' ? 'bg-purple-50 text-purple-700 border-purple-100' : 'bg-blue-50 text-blue-700 border-blue-100'}`}>
+                                  {roleName || "Operator"}
+                                </span>
+                              </td>
+                              <td className="p-4">
+                                <span className={`px-3 py-1 rounded-full text-xs font-bold border ${user.user_status === 'active' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : user.user_status === 'hold' ? 'bg-amber-50 text-amber-700 border-amber-100' : 'bg-red-50 text-red-700 border-red-100'}`}>
+                                  {user.user_status ? user.user_status.toUpperCase() : "ACTIVE"}
+                                </span>
+                              </td>
+                              <td className="p-4"><span className="text-sm font-medium text-slate-600">{user.mobile_number || "—"}</span></td>
+                              <td className="p-4 pr-6 text-center">
+                                <button onClick={() => openEditUserModal(user)} className="text-slate-400 hover:text-blue-600 p-2 rounded-lg hover:bg-blue-50 transition-colors opacity-70 group-hover:opacity-100">
+                                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                        {filteredUsers.length === 0 && !isLoadingUsers && (
+                          <tr><td colSpan={6} className="p-8 text-center text-slate-400 font-medium">{searchQuery ? `No users found matching "${searchQuery}"` : "No users found in database."}</td></tr>
+                        )}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
               </div>
             </div>
           )}
@@ -674,7 +694,7 @@ export default function Dashboard({
           {activeView !== "users" && activeView !== "settings_company" && activeView !== "upload_invoices" && (
              <div className="flex-1 flex justify-center items-center">
                <h2 className="text-2xl font-bold text-slate-400/70 animate-pulse text-center px-4">
-                 {activeView !== "dashboard" ? `${activeView.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')} (Coming Soon)` : "Select an option from the menu"}
+                 {activeView !== "dashboard" ? `${activeView.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')} (Coming Soon)` : ""}
                </h2>
              </div>
           )}
@@ -774,7 +794,7 @@ export default function Dashboard({
             </div>
           )}
           <footer className="h-9 flex justify-between items-center px-6 text-slate-500 font-mono text-[11px] tracking-wider">
-            <span>v1.0.5 - Build: {process.env.NODE_ENV === 'production' ? new Date().toISOString().slice(0, 16).replace('T', ' ') : 'Local-Dev'}</span>
+            <span>v1.0.6 - Build: {process.env.NODE_ENV === 'production' ? new Date().toISOString().slice(0, 16).replace('T', ' ') : 'Local-Dev'}</span>
             <span>{currentTime ? currentTime.toLocaleString(undefined, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }) : 'Initializing clock...'}</span>
           </footer>
         </div>
