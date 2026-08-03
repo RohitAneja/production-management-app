@@ -58,7 +58,7 @@ export default function Dashboard({
   const [editUserStatus, setEditUserStatus] = useState({ type: "", text: "" });
   const [editUserForm, setEditUserForm] = useState({ id: "", username: "", email: "", mobile_number: "", role_id: "", user_status: "active" });
 
-  // Invoice Upload States (PDF)
+  // Invoice Upload States (PDF & Excel)
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [isScanning, setIsScanning] = useState(false);
@@ -66,11 +66,18 @@ export default function Dashboard({
   const [uploadStatus, setUploadStatus] = useState({ type: "", text: "" });
   const [isUploadPanelOpen, setIsUploadPanelOpen] = useState(true);
 
-  // Invoice Upload States (Excel)
   const excelInputRef = useRef<HTMLInputElement>(null);
   const [excelFile, setExcelFile] = useState<File | null>(null);
   const [isProcessingExcel, setIsProcessingExcel] = useState(false);
   const [excelStatus, setExcelStatus] = useState({ type: "", text: "" });
+
+  // ==========================================
+  // NEW: INVOICE REGISTER STATES
+  // ==========================================
+  const [allInvoices, setAllInvoices] = useState<any[]>([]);
+  const [isLoadingInvoices, setIsLoadingInvoices] = useState(false);
+  const [invoiceSearchQuery, setInvoiceSearchQuery] = useState("");
+  const [selectedInvoice, setSelectedInvoice] = useState<any | null>(null);
 
   // ==========================================
   // HELPERS & LIFECYCLE
@@ -88,6 +95,7 @@ export default function Dashboard({
     const handlePopState = (e: PopStateEvent) => {
       if (isAddUserOpen) setIsAddUserOpen(false); 
       else if (isEditUserOpen) setIsEditUserOpen(false);
+      else if (selectedInvoice) setSelectedInvoice(null);
       else {
         if (e.state && e.state.view) setActiveView(e.state.view);
         else setActiveView("dashboard");
@@ -95,7 +103,7 @@ export default function Dashboard({
     };
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
-  }, [isAddUserOpen, isEditUserOpen]);
+  }, [isAddUserOpen, isEditUserOpen, selectedInvoice]);
 
   const handleNavigation = (id: string) => {
     if (id !== activeView) {
@@ -127,6 +135,9 @@ export default function Dashboard({
 
   useEffect(() => { setEditForm({ ...company }); }, [company]);
 
+  // ------------------------------------------
+  // USER MANAGEMENT LOGIC
+  // ------------------------------------------
   const fetchUsersAndRoles = async () => {
     setIsLoadingUsers(true);
     try {
@@ -155,10 +166,56 @@ export default function Dashboard({
   });
 
   // ------------------------------------------
+  // NEW: INVOICE REGISTER LOGIC
+  // ------------------------------------------
+  const fetchAllInvoices = async () => {
+    setIsLoadingInvoices(true);
+    try {
+      const { data, error } = await supabase
+        .from('invoices')
+        .select('*')
+        .order('date', { ascending: false }); // Show newest first
+
+      if (error) throw error;
+      if (data) setAllInvoices(data);
+    } catch (error) {
+      console.error("Error fetching invoice register:", error);
+    }
+    setIsLoadingInvoices(false);
+  };
+
+  // Fetch register data when the user navigates to the view
+  useEffect(() => {
+    if (activeView === "invoice_register") {
+      fetchAllInvoices();
+      setInvoiceSearchQuery(""); // Reset search on load
+    }
+  }, [activeView]);
+
+  // Filter Logic for Invoice Register
+  const filteredRegisterInvoices = allInvoices.filter(inv => {
+    const searchLower = invoiceSearchQuery.toLowerCase();
+    return (
+      (inv.invoice_no?.toLowerCase().includes(searchLower)) ||
+      (inv.main_account?.toLowerCase().includes(searchLower)) ||
+      (inv.sub_account?.toLowerCase().includes(searchLower)) ||
+      (formatDisplayDate(inv.date).includes(searchLower))
+    );
+  });
+
+  // Analytics Math for the Sticky Footer
+  const totalRegisterAmount = filteredRegisterInvoices.reduce((sum, inv) => sum + (Number(inv.amount) || 0), 0);
+  const casesBreakdown = filteredRegisterInvoices.reduce((acc, inv) => {
+    if (inv.num_of_cases && inv.packing_type) {
+      const pType = inv.packing_type;
+      acc[pType] = (acc[pType] || 0) + Number(inv.num_of_cases);
+    }
+    return acc;
+  }, {} as Record<string, number>);
+
+  // ------------------------------------------
   // DISPLAY FORMATTER HELPERS
   // ------------------------------------------
-
-  // 1. Format Date to DD/MM/YYYY
   const formatDisplayDate = (dbDate: string) => {
     if (!dbDate) return "";
     const parts = dbDate.split('-');
@@ -166,23 +223,20 @@ export default function Dashboard({
     return dbDate;
   };
 
-  // 2. Format Invoice Number (Extracts only the final digits after the last slash)
   const formatDisplayInvoiceNo = (invNo: string) => {
     if (!invNo) return "";
     if (invNo.includes('/')) {
       const parts = invNo.split('/');
-      return parts[parts.length - 1]; // Grabs the '1515' from 'TI/26-27/1515'
+      return parts[parts.length - 1]; 
     }
     return invNo;
   };
 
-  // 3. Format Amount to Indian Currency Style (e.g., 2,25,887)
   const formatIndianAmount = (amount: number) => {
     if (amount === null || amount === undefined) return "0";
     return new Intl.NumberFormat('en-IN', { maximumFractionDigits: 2 }).format(amount);
   };
 
-  // Smart Scroll handler to auto-collapse/expand the header
   const handleMainScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const scrollTop = e.currentTarget.scrollTop;
     if (scrollTop < 20 && !isUploadPanelOpen) {
@@ -285,7 +339,7 @@ export default function Dashboard({
     setScannedInvoices(results);
     setUploadStatus({ type: "success", text: `Successfully scanned ${results.length} invoice(s). Please review and save.` });
     setIsScanning(false);
-    setIsUploadPanelOpen(false); // Auto collapse
+    setIsUploadPanelOpen(false); 
   };
 
   const saveInvoicesToDatabase = async () => {
@@ -461,6 +515,16 @@ export default function Dashboard({
   ];
 
   if (userRole && userRole.trim().toUpperCase() === "ADMIN") {
+    // Inject Invoice Register Menu
+    const invMenu = menuOptions.find(m => m.id === "invoices_parent");
+    if (invMenu && invMenu.children && !invMenu.children.some(c => c.id === 'invoice_register')) {
+      invMenu.children.push({
+        name: "Invoice Register",
+        id: "invoice_register",
+        icon: "M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"
+      });
+    }
+
     menuOptions.push({ name: "Users", id: "users", icon: "M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" });
     menuOptions.push({
       name: "Settings", id: "settings_parent", icon: "M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z",
@@ -552,13 +616,10 @@ export default function Dashboard({
         {/* FULL SCREEN DYNAMIC VIEWS */}
         <div className="flex-1 flex flex-col p-0 md:p-6 overflow-hidden">
 
-          {/* UPLOAD INVOICES VIEW - UPDATED WITH SMART COLLAPSE & TABLE DESIGN */}
+          {/* UPLOAD INVOICES VIEW */}
           {activeView === "upload_invoices" && (
             <div className="flex-1 flex flex-col bg-white md:bg-white/95 md:backdrop-blur-xl rounded-none md:rounded-2xl shadow-none md:shadow-xl border-none md:border md:border-white overflow-hidden animate-fade-in relative">
-              
               <div className="flex-1 overflow-y-auto pb-12" onScroll={handleMainScroll}>
-                
-                {/* Sticky Header with manual expand/collapse toggle */}
                 <div className="p-5 md:p-6 border-b border-slate-100 bg-white/70 backdrop-blur-md sticky top-0 z-20 flex justify-between items-center transition-all">
                   <div>
                     <h2 className="text-xl md:text-2xl font-bold text-slate-900">Upload Invoices</h2>
@@ -573,31 +634,14 @@ export default function Dashboard({
                     </button>
                   )}
                 </div>
-                
-                {/* The smoothly collapsing grid container */}
                 <div className={`transition-all duration-500 origin-top overflow-hidden ${isUploadPanelOpen ? 'max-h-[1200px] opacity-100 scale-y-100' : 'max-h-0 opacity-0 scale-y-0'}`}>
                   <div className="p-6 grid grid-cols-1 lg:grid-cols-2 gap-6 border-b border-slate-100">
-                    
-                    {/* 1. PDF UPLOAD CARD */}
                     <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5 md:p-6 flex flex-col">
                       <h3 className="text-lg font-bold text-slate-800 mb-1">1. AI PDF Scanner</h3>
                       <p className="text-xs text-slate-500 mb-5">Select single or multiple PDF invoices. The system matches your company name and extracts data automatically.</p>
-                      
-                      <input 
-                        type="file" 
-                        accept="application/pdf" 
-                        multiple 
-                        ref={fileInputRef}
-                        onChange={handleFileChange}
-                        className="block w-full text-sm text-slate-500 file:mr-4 file:py-2.5 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-bold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 transition-colors mb-4"
-                      />
-                      
+                      <input type="file" accept="application/pdf" multiple ref={fileInputRef} onChange={handleFileChange} className="block w-full text-sm text-slate-500 file:mr-4 file:py-2.5 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-bold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 transition-colors mb-4" />
                       <div className="mt-auto pt-2">
-                        <button 
-                          onClick={scanInvoices}
-                          disabled={selectedFiles.length === 0 || isScanning || isProcessingExcel}
-                          className="w-full bg-slate-800 text-white px-6 py-2.5 rounded-xl text-sm font-bold shadow-md hover:bg-slate-900 transition-colors disabled:opacity-50"
-                        >
+                        <button onClick={scanInvoices} disabled={selectedFiles.length === 0 || isScanning || isProcessingExcel} className="w-full bg-slate-800 text-white px-6 py-2.5 rounded-xl text-sm font-bold shadow-md hover:bg-slate-900 transition-colors disabled:opacity-50">
                           {isScanning && scannedInvoices.length === 0 ? "Scanning PDFs..." : "Scan PDF Files"}
                         </button>
                       </div>
@@ -607,26 +651,12 @@ export default function Dashboard({
                         </div>
                       )}
                     </div>
-
-                    {/* 2. EXCEL BULK UPLOAD CARD */}
                     <div className="bg-emerald-50/50 border border-emerald-100 rounded-2xl p-5 md:p-6 flex flex-col">
                       <h3 className="text-lg font-bold text-emerald-800 mb-1">2. Bulk Excel Sync</h3>
                       <p className="text-xs text-emerald-600/80 mb-5">Upload an Excel/CSV file containing Columns: <span className="font-bold text-emerald-700">Invoice No, Date, Main Account, Sub Account, Num of Cases, Packing Type, Amount, Transport, LR Number, LR Date</span>.</p>
-                      
-                      <input 
-                        type="file" 
-                        accept=".csv, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel"
-                        ref={excelInputRef}
-                        onChange={handleExcelFileChange}
-                        className="block w-full text-sm text-emerald-700 file:mr-4 file:py-2.5 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-bold file:bg-emerald-100 file:text-emerald-800 hover:file:bg-emerald-200 transition-colors mb-4"
-                      />
-                      
+                      <input type="file" accept=".csv, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel" ref={excelInputRef} onChange={handleExcelFileChange} className="block w-full text-sm text-emerald-700 file:mr-4 file:py-2.5 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-bold file:bg-emerald-100 file:text-emerald-800 hover:file:bg-emerald-200 transition-colors mb-4" />
                       <div className="mt-auto pt-2">
-                        <button 
-                          onClick={processExcelUpload}
-                          disabled={!excelFile || isProcessingExcel || isScanning}
-                          className="w-full bg-emerald-600 text-white px-6 py-2.5 rounded-xl text-sm font-bold shadow-md hover:bg-emerald-700 transition-colors disabled:opacity-50"
-                        >
+                        <button onClick={processExcelUpload} disabled={!excelFile || isProcessingExcel || isScanning} className="w-full bg-emerald-600 text-white px-6 py-2.5 rounded-xl text-sm font-bold shadow-md hover:bg-emerald-700 transition-colors disabled:opacity-50">
                           {isProcessingExcel ? "Processing Spreadsheet..." : "Upload & Sync Database"}
                         </button>
                       </div>
@@ -639,7 +669,6 @@ export default function Dashboard({
                   </div>
                 </div>
 
-                {/* PDF SCANNED INVOICES PREVIEW */}
                 {scannedInvoices.length > 0 && (
                   <div id="preview-section" className="p-6 bg-slate-50/50 min-h-[600px]">
                     <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
@@ -647,15 +676,10 @@ export default function Dashboard({
                         <h3 className="text-xl font-bold text-slate-800">Scanned Results Preview</h3>
                         <p className="text-sm text-slate-500">Verify the extracted data below before saving.</p>
                       </div>
-                      <button 
-                        onClick={saveInvoicesToDatabase}
-                        disabled={isScanning}
-                        className="w-full md:w-auto bg-emerald-600 text-white px-8 py-3 rounded-xl text-sm font-bold shadow-md hover:bg-emerald-700 transition-colors disabled:opacity-50"
-                      >
+                      <button onClick={saveInvoicesToDatabase} disabled={isScanning} className="w-full md:w-auto bg-emerald-600 text-white px-8 py-3 rounded-xl text-sm font-bold shadow-md hover:bg-emerald-700 transition-colors disabled:opacity-50">
                         {isScanning ? "Saving..." : "Confirm & Save to Database"}
                       </button>
                     </div>
-                    
                     <div className="overflow-x-auto border border-slate-200 rounded-xl bg-white shadow-sm">
                       <table className="w-full text-left border-collapse min-w-[1100px]">
                         <thead className="bg-slate-100 border-b border-slate-200">
@@ -673,12 +697,8 @@ export default function Dashboard({
                           {scannedInvoices.map((inv, idx) => (
                             <tr key={idx} className="hover:bg-slate-50 transition-colors">
                               <td className="p-4 pl-6 text-sm font-medium text-slate-500 truncate max-w-[150px]">{inv.source_file}</td>
-                              
-                              {/* UPDATED: Formatted Invoice Number (Displays only the last segment) */}
                               <td className="p-4 text-sm font-bold text-slate-900">{formatDisplayInvoiceNo(inv.invoice_no)}</td>
-                              
                               <td className="p-4 text-sm text-slate-600 font-mono tracking-tight">{formatDisplayDate(inv.date)}</td>
-                              
                               <td className="p-4 text-sm text-slate-700">
                                 {inv.sub_account ? (
                                   <>
@@ -690,7 +710,6 @@ export default function Dashboard({
                                   <span className="font-semibold text-slate-900">{inv.main_account}</span>
                                 )}
                               </td>
-                              
                               <td className="p-4 text-sm">
                                 {inv.num_of_cases ? (
                                   <span className="font-bold text-indigo-700 bg-indigo-50 px-2 py-1 rounded-md border border-indigo-100">
@@ -700,10 +719,7 @@ export default function Dashboard({
                                   <span className="text-slate-300">—</span>
                                 )}
                               </td>
-
-                              {/* UPDATED: Formatted Indian Currency Amount */}
                               <td className="p-4 text-sm font-bold text-emerald-600">₹{formatIndianAmount(inv.amount)}</td>
-                              
                               <td className="p-4 text-sm text-slate-600">{inv.transport}</td>
                             </tr>
                           ))}
@@ -712,6 +728,116 @@ export default function Dashboard({
                     </div>
                   </div>
                 )}
+              </div>
+            </div>
+          )}
+
+          {/* ========================================================= */}
+          {/* NEW: INVOICE REGISTER VIEW */}
+          {/* ========================================================= */}
+          {activeView === "invoice_register" && (
+            <div className="flex-1 flex flex-col bg-white md:bg-white/95 md:backdrop-blur-xl rounded-none md:rounded-2xl shadow-none md:shadow-xl border-none md:border md:border-white overflow-hidden animate-fade-in relative">
+              <div className="flex-1 flex flex-col h-full relative">
+                
+                {/* Header & Search Bar */}
+                <div className="p-5 md:p-6 border-b border-slate-100 bg-white/70 backdrop-blur-md sticky top-0 z-20 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 shrink-0">
+                  <div>
+                    <h2 className="text-xl md:text-2xl font-bold text-slate-900">Invoice Register</h2>
+                    <p className="text-sm text-slate-500">Comprehensive view of all processed invoices.</p>
+                  </div>
+                  <div className="relative w-full md:w-80">
+                    <svg className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                    <input 
+                      type="text" 
+                      placeholder="Search by Date, Account, or Inv No..." 
+                      value={invoiceSearchQuery} 
+                      onChange={(e) => setInvoiceSearchQuery(e.target.value)} 
+                      className="w-full pl-9 pr-4 h-11 shrink-0 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium transition-all" 
+                    />
+                  </div>
+                </div>
+                
+                {/* Data Table */}
+                <div className="flex-1 overflow-x-auto overflow-y-auto">
+                  {isLoadingInvoices ? (
+                    <div className="flex justify-center items-center h-full min-h-[400px]">
+                      <div className="w-10 h-10 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin"></div>
+                    </div>
+                  ) : (
+                    <table className="w-full text-left border-collapse min-w-[900px]">
+                      <thead className="bg-slate-50 sticky top-0 z-10 shadow-sm border-b border-slate-200">
+                        <tr className="text-slate-600 text-xs uppercase tracking-wider font-bold">
+                          <th className="p-4 pl-6 w-[15%]">Inv No</th>
+                          <th className="p-4 w-[15%]">Date</th>
+                          <th className="p-4 w-[40%]">Account</th>
+                          <th className="p-4 w-[15%]">Cases</th>
+                          <th className="p-4 w-[15%] text-right pr-6">Amount</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 bg-white">
+                        {filteredRegisterInvoices.map((inv) => (
+                          <tr 
+                            key={inv.invoice_no} 
+                            onClick={() => setSelectedInvoice(inv)}
+                            className="hover:bg-blue-50/50 transition-colors cursor-pointer group"
+                          >
+                            <td className="p-4 pl-6 text-sm font-bold text-slate-900 group-hover:text-blue-600 transition-colors">
+                              {formatDisplayInvoiceNo(inv.invoice_no)}
+                            </td>
+                            <td className="p-4 text-sm text-slate-600 font-mono tracking-tight">
+                              {formatDisplayDate(inv.date)}
+                            </td>
+                            <td className="p-4 text-sm text-slate-700">
+                              {inv.sub_account ? (
+                                <>
+                                  <span className="font-bold text-slate-900 block md:inline">{inv.sub_account}</span>
+                                  <span className="text-slate-400 font-normal mx-1 hidden md:inline">c/o</span>
+                                  <span className="block md:inline text-xs md:text-sm font-semibold">{inv.main_account}</span>
+                                </>
+                              ) : (
+                                <span className="font-semibold text-slate-900">{inv.main_account}</span>
+                              )}
+                            </td>
+                            <td className="p-4 text-sm">
+                              {inv.num_of_cases ? (
+                                <span className="font-bold text-indigo-700 bg-indigo-50 px-2 py-1 rounded-md border border-indigo-100">
+                                  {inv.num_of_cases} {inv.packing_type}
+                                </span>
+                              ) : (
+                                <span className="text-slate-300">—</span>
+                              )}
+                            </td>
+                            <td className="p-4 pr-6 text-sm font-bold text-emerald-600 text-right">
+                              ₹{formatIndianAmount(inv.amount)}
+                            </td>
+                          </tr>
+                        ))}
+                        {filteredRegisterInvoices.length === 0 && (
+                          <tr><td colSpan={5} className="p-12 text-center text-slate-400 font-medium">No invoices found matching your criteria.</td></tr>
+                        )}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+
+                {/* Sticky Summary Footer */}
+                <div className="bg-slate-800 text-white p-4 md:p-5 sticky bottom-0 z-20 flex flex-col md:flex-row justify-between items-center shrink-0 border-t border-slate-700">
+                  <div className="flex flex-wrap items-center gap-3 md:gap-6 text-sm font-medium mb-3 md:mb-0">
+                    <span className="text-slate-400 uppercase tracking-widest text-xs font-bold">Totals Summary</span>
+                    {Object.entries(casesBreakdown).map(([type, count]) => (
+                      <span key={type} className="bg-slate-700/50 border border-slate-600 px-3 py-1.5 rounded-lg flex items-center gap-2 shadow-sm">
+                        <span className="font-bold text-white text-base">{count}</span>
+                        <span className="text-slate-300 capitalize">{type}</span>
+                      </span>
+                    ))}
+                    {Object.keys(casesBreakdown).length === 0 && <span className="text-slate-500 italic">No packing data</span>}
+                  </div>
+                  <div className="flex items-center gap-4 bg-emerald-500/10 border border-emerald-500/20 px-5 py-2.5 rounded-xl">
+                    <span className="text-emerald-400/80 text-xs uppercase tracking-wider font-bold">Grand Total</span>
+                    <span className="text-xl md:text-2xl font-black text-emerald-400 tracking-tight">₹{formatIndianAmount(totalRegisterAmount)}</span>
+                  </div>
+                </div>
+
               </div>
             </div>
           )}
@@ -796,8 +922,8 @@ export default function Dashboard({
             </div>
           )}
 
-          {/* BACKGROUND PLACEHOLDER FOR OTHER VIEWS */}
-          {activeView !== "users" && activeView !== "settings_company" && activeView !== "upload_invoices" && (
+          {/* BACKGROUND PLACEHOLDER */}
+          {activeView !== "users" && activeView !== "settings_company" && activeView !== "upload_invoices" && activeView !== "invoice_register" && (
              <div className="flex-1 flex justify-center items-center">
                <h2 className="text-2xl font-bold text-slate-400/70 animate-pulse text-center px-4">
                  {activeView !== "dashboard" ? `${activeView.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')} (Coming Soon)` : ""}
@@ -806,7 +932,82 @@ export default function Dashboard({
           )}
         </div>
 
+        {/* ========================================================= */}
         {/* MODALS */}
+        {/* ========================================================= */}
+
+        {/* SINGLE INVOICE DETAILS MODAL (Pop-up from Invoice Register) */}
+        {selectedInvoice && (
+          <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm md:p-6 transition-all duration-300 animate-fade-in" onClick={() => setSelectedInvoice(null)}>
+            <div className="bg-white md:bg-white/95 md:backdrop-blur-xl w-full h-full md:h-auto md:max-w-3xl md:rounded-2xl shadow-2xl flex flex-col overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center justify-between p-5 md:p-6 border-b border-slate-100 bg-slate-50 md:bg-transparent sticky top-0 z-10 shrink-0">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-blue-100 text-blue-600 rounded-xl flex items-center justify-center">
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-extrabold text-slate-800">Invoice {formatDisplayInvoiceNo(selectedInvoice.invoice_no)}</h2>
+                    <p className="text-xs font-mono text-slate-500">{selectedInvoice.invoice_no}</p>
+                  </div>
+                </div>
+                <button onClick={() => setSelectedInvoice(null)} className="p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-600 rounded-full transition-colors"><svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg></button>
+              </div>
+              
+              <div className="p-6 md:p-8 space-y-8">
+                
+                {/* Account Section */}
+                <div className="bg-slate-50 p-5 rounded-2xl border border-slate-100">
+                  <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3">Account Details</p>
+                  {selectedInvoice.sub_account ? (
+                    <div>
+                      <h3 className="text-lg font-black text-slate-900">{selectedInvoice.sub_account}</h3>
+                      <p className="text-sm font-semibold text-slate-500 mt-1">c/o <span className="text-slate-700">{selectedInvoice.main_account}</span></p>
+                    </div>
+                  ) : (
+                    <h3 className="text-lg font-black text-slate-900">{selectedInvoice.main_account}</h3>
+                  )}
+                </div>
+
+                {/* Logistics & Payment Grid */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+                  <div>
+                    <span className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Invoice Date</span>
+                    <span className="text-base font-bold text-slate-800 font-mono">{formatDisplayDate(selectedInvoice.date)}</span>
+                  </div>
+                  <div>
+                    <span className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Total Amount</span>
+                    <span className="text-base font-black text-emerald-600">₹{formatIndianAmount(selectedInvoice.amount)}</span>
+                  </div>
+                  <div>
+                    <span className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Packing/Cases</span>
+                    {selectedInvoice.num_of_cases ? (
+                      <span className="inline-block text-sm font-bold text-indigo-700 bg-indigo-50 px-2.5 py-1 rounded-md border border-indigo-100">
+                        {selectedInvoice.num_of_cases} {selectedInvoice.packing_type}
+                      </span>
+                    ) : <span className="text-slate-400">—</span>}
+                  </div>
+                  <div>
+                    <span className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Transport</span>
+                    <span className="text-sm font-semibold text-slate-700">{selectedInvoice.transport || "—"}</span>
+                  </div>
+                  <div>
+                    <span className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">LR Number</span>
+                    <span className="text-sm font-semibold text-slate-700">{selectedInvoice.lr_number || "Pending"}</span>
+                  </div>
+                  <div>
+                    <span className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">LR Date</span>
+                    <span className="text-sm font-semibold text-slate-700">{formatDisplayDate(selectedInvoice.lr_date) || "Pending"}</span>
+                  </div>
+                </div>
+
+              </div>
+              <div className="p-4 md:p-6 border-t border-slate-100 bg-slate-50 flex justify-end shrink-0">
+                <button onClick={() => setSelectedInvoice(null)} className="px-6 py-2.5 bg-white border border-slate-200 text-slate-700 font-bold rounded-xl hover:bg-slate-100 transition-all text-sm shadow-sm">Close</button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {isAddUserOpen && (
           <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm md:p-6 transition-all duration-300" onClick={closeAddUserModal}>
             <div className="bg-white md:bg-white/95 md:backdrop-blur-xl w-full h-full md:h-auto md:max-w-md md:rounded-2xl shadow-2xl flex flex-col overflow-y-auto" onClick={(e) => e.stopPropagation()}>
