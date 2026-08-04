@@ -285,7 +285,7 @@ export default function Dashboard({
   }, {} as Record<string, number>);
 
  // ==========================================
-  // CLIENT-SIDE BROWSER OCR (FIXED FOR MOBILE)
+  // CLIENT-SIDE BROWSER OCR (FIXED NEXT.JS WORKER BUG)
   // ==========================================
   const handleBuiltyUploadChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
@@ -297,11 +297,9 @@ export default function Dashboard({
       let imageUrl = "";
 
       try {
-        // 1. Create a safe local URL to bypass mobile memory restrictions
         imageUrl = URL.createObjectURL(file);
-
-        // 2. Import Tesseract securely for Next.js
         setBuiltyStatus({ type: "info", text: "Loading AI model..." });
+        
         const Tesseract = await import('tesseract.js');
         const recognize = Tesseract.recognize || Tesseract.default?.recognize;
 
@@ -311,10 +309,18 @@ export default function Dashboard({
         
         const pendingNos = pendingInvoices.map(inv => formatDisplayInvoiceNo(inv.invoice_no));
 
-        // 3. RUN AI DIRECTLY IN THE BROWSER
-        setBuiltyStatus({ type: "info", text: "Reading text from photo..." });
+        // RUN AI WITH EXPLICIT CDN PATHS (Bypasses Next.js 404 bugs completely)
         const { data: { text } } = await recognize(imageUrl, 'eng', {
-            logger: m => console.log(m)
+            logger: m => {
+                console.log(m);
+                if (m.status === 'recognizing text') {
+                    // Show real-time scanning progress!
+                    setBuiltyStatus({ type: "info", text: `Scanning document... ${Math.round(m.progress * 100)}%` });
+                }
+            },
+            workerPath: 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/worker.min.js',
+            langPath: 'https://tessdata.projectnaptha.com/4.0.0',
+            corePath: 'https://cdn.jsdelivr.net/npm/tesseract.js-core@5',
         });
         
         const rawText = text || "";
@@ -362,17 +368,13 @@ export default function Dashboard({
         console.error("OCR Catch Error:", err);
         setBuiltyStatus({ type: "error", text: "Image processing failed. Error: " + (err.message || "Unknown") });
       } finally {
-        // Cleanup the URL to prevent memory leaks
         if (imageUrl) URL.revokeObjectURL(imageUrl);
         setIsParsingBuilty(false);
-        
-        // Reset both inputs so they can be clicked again
         if (cameraInputRef.current) cameraInputRef.current.value = "";
         if (galleryInputRef.current) galleryInputRef.current.value = "";
       }
     }
-  };
-  
+  }; 
   const confirmBuiltyMatch = () => {
     setShowBuiltyConfirm(false);
     setShowBuiltyEdit(true); 
