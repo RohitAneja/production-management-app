@@ -36,6 +36,7 @@ export default function Dashboard({
 }: DashboardProps) {
   const userRoleUpper = userRole ? userRole.trim().toUpperCase() : "";
 
+  const [isMounted, setIsMounted] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isVerticalMode, setIsVerticalMode] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
@@ -110,8 +111,12 @@ export default function Dashboard({
   const imgRef = useRef<HTMLImageElement | null>(null);
 
   // ==========================================
-  // HELPERS & LIFECYCLE (FIXED FOR TABLET VERTICAL)
+  // HELPERS & LIFECYCLE 
   // ==========================================
+  useEffect(() => { 
+    setIsMounted(true); 
+  }, []);
+
   useEffect(() => {
     if (typeof window !== "undefined") {
       const checkOrientation = () => {
@@ -390,21 +395,32 @@ export default function Dashboard({
     const canvas = document.createElement('canvas');
     const scaleX = image.naturalWidth / image.width;
     const scaleY = image.naturalHeight / image.height;
-    canvas.width = crop.width * scaleX;
-    canvas.height = crop.height * scaleY;
+
+    // FIX: Convert percentage to actual display pixels first
+    const pixelCrop = crop.unit === '%' ? {
+        x: (crop.x / 100) * image.width,
+        y: (crop.y / 100) * image.height,
+        width: (crop.width / 100) * image.width,
+        height: (crop.height / 100) * image.height,
+    } : crop;
+
+    // Use the newly converted pixel values
+    canvas.width = pixelCrop.width * scaleX;
+    canvas.height = pixelCrop.height * scaleY;
+    
     const ctx = canvas.getContext('2d');
 
     if (ctx) {
       ctx.drawImage(
         image,
-        crop.x * scaleX,
-        crop.y * scaleY,
-        crop.width * scaleX,
-        crop.height * scaleY,
+        pixelCrop.x * scaleX,
+        pixelCrop.y * scaleY,
+        pixelCrop.width * scaleX,
+        pixelCrop.height * scaleY,
         0,
         0,
-        crop.width * scaleX,
-        crop.height * scaleY
+        pixelCrop.width * scaleX,
+        pixelCrop.height * scaleY
       );
 
       canvas.toBlob((blob) => {
@@ -801,7 +817,6 @@ export default function Dashboard({
     }
   }
 
-  // User handers skipped in preview for brevity...
   const handleAddUser = async (e: React.FormEvent) => {
     e.preventDefault(); setIsAddingUser(true); setAddUserStatus({ type: "", text: "" });
     try {
@@ -1354,118 +1369,119 @@ export default function Dashboard({
                                    className="flex-1 flex items-center justify-center gap-2 py-2 bg-[#25D366]/10 text-[#128C7E] rounded-lg text-xs font-bold border border-[#25D366]/20 hover:bg-[#25D366]/20 transition-colors"
                                  >
                                    <svg viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51a12.8 12.8 0 00-.57-.01c-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z"/></svg>
-                                 Share
-                               </button>
-                               {userRoleUpper === "ADMIN" && (inv.lr_number || inv.builty_image_url) && (
-                                   <button 
-                                     onClick={(e) => { e.stopPropagation(); setInvoiceToDeleteBuilty(inv); }}
-                                     className="flex-none w-10 flex items-center justify-center p-2 bg-red-50 text-red-600 rounded-lg text-xs font-bold border border-red-100 hover:bg-red-100 transition-colors"
-                                     title="Delete Builty Details"
-                                   >
-                                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
-                                   </button>
-                               )}
+                                   Share
+                                 </button>
+                                 {userRoleUpper === "ADMIN" && (inv.lr_number || inv.builty_image_url) && (
+                                     <button 
+                                       onClick={(e) => { e.stopPropagation(); setInvoiceToDeleteBuilty(inv); }}
+                                       className="flex-none w-10 flex items-center justify-center p-2 bg-red-50 text-red-600 rounded-lg text-xs font-bold border border-red-100 hover:bg-red-100 transition-colors"
+                                       title="Delete Builty Details"
+                                     >
+                                       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                                     </button>
+                                 )}
+                              </div>
                             </div>
-                          </div>
-                        ))}
-                        {filteredRegisterInvoices.length === 0 && (
-                          <div className="p-8 text-center text-slate-400 text-sm font-medium">No invoices found matching your criteria.</div>
-                        )}
-                      </div>
-                    ) : (
-                      <div className="overflow-x-auto border border-slate-200 rounded-xl bg-white shadow-sm">
-                        <table className="w-full text-left border-collapse min-w-[900px]">
-                          <thead className="bg-slate-50 sticky top-0 z-10 shadow-sm border-b border-slate-200">
-                            <tr className="text-slate-600 text-xs uppercase tracking-wider font-bold">
-                              <th className="p-4 pl-6 w-[15%]">Inv No</th>
-                              <th className="p-4 w-[15%]">Date</th>
-                              <th className="p-4 w-[35%]">Account</th>
-                              <th className="p-4 w-[10%]">Cases</th>
-                              <th className="p-4 w-[15%] text-right">Amount</th>
-                              <th className="p-4 w-[10%] text-center pr-6">Actions</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-slate-100 bg-white">
-                            {filteredRegisterInvoices.map((inv) => (
-                              <tr 
-                                key={inv.invoice_no} 
-                                onClick={() => setSelectedInvoice(inv)}
-                                className="hover:bg-blue-50/50 transition-colors cursor-pointer group"
-                              >
-                                <td className="p-4 pl-6 text-sm font-bold text-slate-900 group-hover:text-blue-600 transition-colors">
-                                  {formatDisplayInvoiceNo(inv.invoice_no)}
-                                </td>
-                                <td className="p-4 text-sm text-slate-600 font-mono tracking-tight">
-                                  {formatDisplayDate(inv.date)}
-                                </td>
-                                <td className="p-4 text-sm text-slate-700">
-                                  {inv.sub_account ? (
-                                    <>
-                                      <span className="font-bold text-slate-900 block md:inline">{inv.sub_account}</span>
-                                      <span className="text-slate-400 font-normal mx-1 hidden md:inline">c/o</span>
-                                      <span className="block md:inline text-xs md:text-sm font-semibold">{inv.main_account}</span>
-                                    </>
-                                  ) : (
-                                    <span className="font-semibold text-slate-900">{inv.main_account}</span>
-                                  )}
-                                </td>
-                                <td className="p-4 text-sm">
-                                  {inv.num_of_cases ? (
-                                    <span className="font-bold text-indigo-700 bg-indigo-50 px-2 py-1 rounded-md border border-indigo-100">
-                                      {inv.num_of_cases} {inv.packing_type}
-                                    </span>
-                                  ) : (
-                                    <span className="text-slate-300">—</span>
-                                  )}
-                                </td>
-                                <td className="p-4 text-sm font-bold text-emerald-600 text-right">
-                                  ₹{formatIndianAmount(inv.amount)}
-                                </td>
-                                <td className="p-4 pr-6 text-center">
-                                  <div className="flex items-center justify-center gap-1">
-                                    <button
-                                      onClick={(e) => shareOnWhatsApp(inv, e)}
-                                      className="text-[#128C7E] hover:text-[#075E54] p-2 rounded-lg hover:bg-[#25D366]/10 transition-colors"
-                                      title="Share on WhatsApp"
-                                    >
-                                      <svg viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51a12.8 12.8 0 00-.57-.01c-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z"/></svg>
-                                    </button>
-                                    
-                                    {inv.builty_image_url ? (
-                                      <button
-                                        onClick={(e) => { e.stopPropagation(); window.open(inv.builty_image_url, "_blank"); }}
-                                        className="text-indigo-600 hover:text-indigo-800 p-2 rounded-lg hover:bg-indigo-100 transition-colors"
-                                        title="View Builty Photo"
-                                      >
-                                        <svg className="w-5 h-5 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"></path></svg>
-                                      </button>
-                                    ) : (
-                                      <div className="w-9 h-9" />
-                                    )}
-
-                                    {userRoleUpper === "ADMIN" && (inv.lr_number || inv.builty_image_url) && (
-                                      <button
-                                        onClick={(e) => { e.stopPropagation(); setInvoiceToDeleteBuilty(inv); }}
-                                        className="text-red-500 hover:text-red-700 p-2 rounded-lg hover:bg-red-50 transition-colors"
-                                        title="Delete Builty Details"
-                                      >
-                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
-                                      </button>
-                                    )}
-                                  </div>
-                                </td>
-                                
+                          ))}
+                          {filteredRegisterInvoices.length === 0 && (
+                            <div className="p-8 text-center text-slate-400 text-sm font-medium">No invoices found matching your criteria.</div>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="overflow-x-auto border border-slate-200 rounded-xl bg-white shadow-sm">
+                          <table className="w-full text-left border-collapse min-w-[900px]">
+                            <thead className="bg-slate-50 sticky top-0 z-10 shadow-sm border-b border-slate-200">
+                              <tr className="text-slate-600 text-xs uppercase tracking-wider font-bold">
+                                <th className="p-4 pl-6 w-[15%]">Inv No</th>
+                                <th className="p-4 w-[15%]">Date</th>
+                                <th className="p-4 w-[35%]">Account</th>
+                                <th className="p-4 w-[10%]">Cases</th>
+                                <th className="p-4 w-[15%] text-right">Amount</th>
+                                <th className="p-4 w-[10%] text-center pr-6">Actions</th>
                               </tr>
-                            ))}
-                            {filteredRegisterInvoices.length === 0 && (
-                              <tr><td colSpan={6} className="p-12 text-center text-slate-400 font-medium">No invoices found matching your criteria.</td></tr>
-                            )}
-                          </tbody>
-                        </table>
-                      </div>
-                    )}
-                  </div>
-                )}
+                            </thead>
+                            <tbody className="divide-y divide-slate-100 bg-white">
+                              {filteredRegisterInvoices.map((inv) => (
+                                <tr 
+                                  key={inv.invoice_no} 
+                                  onClick={() => setSelectedInvoice(inv)}
+                                  className="hover:bg-blue-50/50 transition-colors cursor-pointer group"
+                                >
+                                  <td className="p-4 pl-6 text-sm font-bold text-slate-900 group-hover:text-blue-600 transition-colors">
+                                    {formatDisplayInvoiceNo(inv.invoice_no)}
+                                  </td>
+                                  <td className="p-4 text-sm text-slate-600 font-mono tracking-tight">
+                                    {formatDisplayDate(inv.date)}
+                                  </td>
+                                  <td className="p-4 text-sm text-slate-700">
+                                    {inv.sub_account ? (
+                                      <>
+                                        <span className="font-bold text-slate-900 block md:inline">{inv.sub_account}</span>
+                                        <span className="text-slate-400 font-normal mx-1 hidden md:inline">c/o</span>
+                                        <span className="block md:inline text-xs md:text-sm font-semibold">{inv.main_account}</span>
+                                      </>
+                                    ) : (
+                                      <span className="font-semibold text-slate-900">{inv.main_account}</span>
+                                    )}
+                                  </td>
+                                  <td className="p-4 text-sm">
+                                    {inv.num_of_cases ? (
+                                      <span className="font-bold text-indigo-700 bg-indigo-50 px-2 py-1 rounded-md border border-indigo-100">
+                                        {inv.num_of_cases} {inv.packing_type}
+                                      </span>
+                                    ) : (
+                                      <span className="text-slate-300">—</span>
+                                    )}
+                                  </td>
+                                  <td className="p-4 text-sm font-bold text-emerald-600 text-right">
+                                    ₹{formatIndianAmount(inv.amount)}
+                                  </td>
+                                  <td className="p-4 pr-6 text-center">
+                                    <div className="flex items-center justify-center gap-1">
+                                      <button
+                                        onClick={(e) => shareOnWhatsApp(inv, e)}
+                                        className="text-[#128C7E] hover:text-[#075E54] p-2 rounded-lg hover:bg-[#25D366]/10 transition-colors"
+                                        title="Share on WhatsApp"
+                                      >
+                                        <svg viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51a12.8 12.8 0 00-.57-.01c-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z"/></svg>
+                                      </button>
+                                      
+                                      {inv.builty_image_url ? (
+                                        <button
+                                          onClick={(e) => { e.stopPropagation(); window.open(inv.builty_image_url, "_blank"); }}
+                                          className="text-indigo-600 hover:text-indigo-800 p-2 rounded-lg hover:bg-indigo-100 transition-colors"
+                                          title="View Builty Photo"
+                                        >
+                                          <svg className="w-5 h-5 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"></path></svg>
+                                        </button>
+                                      ) : (
+                                        <div className="w-9 h-9" />
+                                      )}
+
+                                      {userRoleUpper === "ADMIN" && (inv.lr_number || inv.builty_image_url) && (
+                                        <button
+                                          onClick={(e) => { e.stopPropagation(); setInvoiceToDeleteBuilty(inv); }}
+                                          className="text-red-500 hover:text-red-700 p-2 rounded-lg hover:bg-red-50 transition-colors"
+                                          title="Delete Builty Details"
+                                        >
+                                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                                        </button>
+                                      )}
+                                    </div>
+                                  </td>
+                                  
+                                </tr>
+                              ))}
+                              {filteredRegisterInvoices.length === 0 && (
+                                <tr><td colSpan={6} className="p-12 text-center text-slate-400 font-medium">No invoices found matching your criteria.</td></tr>
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
 
                 {/* Sticky Summary Footer */}
                 <div className="bg-slate-800 text-white p-4 md:p-5 sticky bottom-0 z-20 flex flex-col md:flex-row justify-between items-center shrink-0 border-t border-slate-700">
@@ -1881,7 +1897,7 @@ export default function Dashboard({
             </div>
           )}
           <footer className="h-9 flex justify-between items-center px-6 text-slate-500 font-mono text-[11px] tracking-wider">
-            <span>v1.0.6 - Build: {process.env.NODE_ENV === 'production' ? new Date().toISOString().slice(0, 16).replace('T', ' ') : 'Local-Dev'}</span>
+            <span>v1.0.6 - Build: {isMounted && process.env.NODE_ENV === 'production' ? new Date().toISOString().slice(0, 16).replace('T', ' ') : 'Local-Dev'}</span>
             <span>{currentTime ? currentTime.toLocaleString(undefined, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }) : 'Initializing clock...'}</span>
           </footer>
         </div>
