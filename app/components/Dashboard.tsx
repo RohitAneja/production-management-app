@@ -3,7 +3,6 @@
 import { useState, useEffect, useRef } from "react";
 import { createClient } from "@supabase/supabase-js";
 import * as XLSX from "xlsx";
-import Tesseract from 'tesseract.js';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -87,11 +86,10 @@ export default function Dashboard({
   const galleryInputRef = useRef<HTMLInputElement>(null);
   
   const [builtyFile, setBuiltyFile] = useState<File | null>(null);
-  const [isParsingBuilty, setIsParsingBuilty] = useState(false);
+  const [builtyPreviewUrl, setBuiltyPreviewUrl] = useState<string | null>(null);
   const [builtyStatus, setBuiltyStatus] = useState({ type: "", text: "" });
   
   const [matchedInvoice, setMatchedInvoice] = useState<any | null>(null);
-  const [showBuiltyConfirm, setShowBuiltyConfirm] = useState(false);
   const [showBuiltyEdit, setShowBuiltyEdit] = useState(false);
   const [builtyForm, setBuiltyForm] = useState({ lr_number: "", lr_date: "" });
   const [isSavingBuilty, setIsSavingBuilty] = useState(false);
@@ -113,7 +111,6 @@ export default function Dashboard({
       if (isAddUserOpen) setIsAddUserOpen(false); 
       else if (isEditUserOpen) setIsEditUserOpen(false);
       else if (selectedInvoice) setSelectedInvoice(null);
-      else if (showBuiltyConfirm) setShowBuiltyConfirm(false);
       else if (showBuiltyEdit) setShowBuiltyEdit(false);
       else {
         if (e.state && e.state.view) setActiveView(e.state.view);
@@ -122,7 +119,7 @@ export default function Dashboard({
     };
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
-  }, [isAddUserOpen, isEditUserOpen, selectedInvoice, showBuiltyConfirm, showBuiltyEdit]);
+  }, [isAddUserOpen, isEditUserOpen, selectedInvoice, showBuiltyEdit]);
 
   const handleNavigation = (id: string) => {
     if (id !== activeView) {
@@ -280,120 +277,41 @@ export default function Dashboard({
 
 
   // ==========================================
-  // IMAGE COMPRESSION HELPER (PREVENTS RAM CRASH)
+  // MANUAL BUILTY UPLOAD LOGIC
   // ==========================================
-  const compressImage = (file: File): Promise<string> => {
-    return new Promise((resolve, reject) => {
-      const img = new window.Image();
-      const objectUrl = URL.createObjectURL(file);
-      
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        const MAX_WIDTH = 1200; // Shrinks massive 4K phone photos safely
-        const scaleSize = MAX_WIDTH / img.width;
-        
-        canvas.width = Math.min(img.width, MAX_WIDTH);
-        canvas.height = img.height * (scaleSize < 1 ? scaleSize : 1);
-        
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-            const compressedBase64 = canvas.toDataURL('image/jpeg', 0.8); // 80% quality JPG
-            URL.revokeObjectURL(objectUrl);
-            resolve(compressedBase64);
-        } else {
-            reject(new Error("Canvas context failed"));
-        }
-      };
-      img.onerror = (err) => {
-          URL.revokeObjectURL(objectUrl);
-          reject(err);
-      };
-      img.src = objectUrl;
-    });
-  };
-
-  // ==========================================
-  // CLIENT-SIDE BROWSER OCR
-  // ==========================================
-  const handleBuiltyUploadChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleBuiltyUploadChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
-      setBuiltyFile(file); // Save the original file to state for uploading to Supabase later
-      setIsParsingBuilty(true);
+      setBuiltyFile(file);
+      setBuiltyPreviewUrl(URL.createObjectURL(file));
+      setBuiltyStatus({ type: "success", text: "Image Ready! Please select a pending invoice below." });
       
-      try {
-        // 1. COMPRESS THE IMAGE IMMEDIATELY
-        setBuiltyStatus({ type: "info", text: "Optimizing image for fast scan..." });
-        const compressedBase64 = await compressImage(file);
-
-        // 2. RUN LIGHTWEIGHT TESSERACT SCAN
-        setBuiltyStatus({ type: "info", text: "Reading text from document..." });
-        const { data: { text } } = await Tesseract.recognize(compressedBase64, 'eng');
-        
-        const rawText = text || "";
-        console.log("Extracted Text:", rawText);
-
-        const pendingNos = pendingInvoices.map(inv => formatDisplayInvoiceNo(inv.invoice_no));
-
-        // Extract LR Number
-        let extractedLrNumber = "";
-        const grMatch = rawText.match(/G\.?R\.?\s*No[\.\s:-]*(\d+)/i) || rawText.match(/No[\.\s:-]*(\d{4,})/i);
-        if (grMatch && grMatch[1]) {
-          extractedLrNumber = grMatch[1].trim();
-        }
-
-        // Extract LR Date
-        let extractedLrDate = new Date().toISOString().split('T')[0];
-        const dateMatch = rawText.match(/(\d{2})[-/](\d{2})[-/](\d{4})/);
-        if (dateMatch) {
-          extractedLrDate = `${dateMatch[3]}-${dateMatch[2]}-${dateMatch[1]}`; 
-        }
-
-        // Match with Pending List
-        let matchedInvoiceNo = null;
-        for (const pendingNo of pendingNos) {
-          const exactMatchRegex = new RegExp(`\\b${pendingNo}\\b`, 'i');
-          if (exactMatchRegex.test(rawText)) {
-            matchedInvoiceNo = pendingNo;
-            break;
-          }
-        }
-
-        // Process Result
-        if (matchedInvoiceNo) {
-           const matched = pendingInvoices.find(i => formatDisplayInvoiceNo(i.invoice_no) === matchedInvoiceNo);
-           if (matched) {
-              setMatchedInvoice(matched);
-              setBuiltyForm({ lr_number: extractedLrNumber, lr_date: extractedLrDate });
-              setBuiltyStatus({ type: "", text: "" });
-              setShowBuiltyConfirm(true); 
-           } else {
-              setBuiltyStatus({ type: "error", text: `Builty matched Invoice #${matchedInvoiceNo}, but it is not in the pending list.` });
-           }
-        } else {
-           setBuiltyStatus({ type: "error", text: "Could not find any pending Invoice Number in this photo. Please retake clearly." });
-        }
-      } catch (err: any) {
-        console.error("Scanning Error:", err);
-        setBuiltyStatus({ type: "error", text: "Image processing failed. Error: " + (err.message || "Unknown") });
-      } finally {
-        setIsParsingBuilty(false);
-        if (cameraInputRef.current) cameraInputRef.current.value = "";
-        if (galleryInputRef.current) galleryInputRef.current.value = "";
-      }
+      // Reset inputs so they can be triggered again
+      if (cameraInputRef.current) cameraInputRef.current.value = "";
+      if (galleryInputRef.current) galleryInputRef.current.value = "";
     }
   };
 
-  const confirmBuiltyMatch = () => {
-    setShowBuiltyConfirm(false);
+  const clearBuiltySelection = () => {
+    setBuiltyFile(null);
+    if (builtyPreviewUrl) URL.revokeObjectURL(builtyPreviewUrl);
+    setBuiltyPreviewUrl(null);
+    setBuiltyStatus({ type: "", text: "" });
+  };
+
+  const handlePendingInvoiceClick = (inv: any) => {
+    if (!builtyFile) {
+      setBuiltyStatus({ type: "error", text: "Please capture or select a Builty image first." });
+      return;
+    }
+    setMatchedInvoice(inv);
+    setBuiltyForm({ lr_number: "", lr_date: new Date().toISOString().split('T')[0] });
     setShowBuiltyEdit(true); 
   };
 
   const saveBuiltyToDatabase = async () => {
     if (!matchedInvoice || !builtyFile) return;
     setIsSavingBuilty(true);
-    setBuiltyStatus({ type: "info", text: "Uploading image to secure cloud storage..." });
 
     try {
        const fileExt = builtyFile.name.split('.').pop() || 'jpg';
@@ -432,14 +350,14 @@ export default function Dashboard({
            console.warn("Local download skipped:", downloadErr);
        }
 
-       setBuiltyStatus({ type: "success", text: "Builty securely uploaded and linked to Invoice!" });
+       setBuiltyStatus({ type: "success", text: "Builty securely saved to cloud and linked!" });
+       
        setTimeout(() => {
            setShowBuiltyEdit(false);
            setMatchedInvoice(null);
-           setBuiltyFile(null);
-           setBuiltyStatus({ type: "", text: "" });
+           clearBuiltySelection();
            fetchPendingInvoices(); 
-       }, 2000);
+       }, 1500);
 
     } catch (err: any) {
        console.error("Save Error:", err);
@@ -970,7 +888,7 @@ export default function Dashboard({
           )}
 
           {/* ========================================================= */}
-          {/* UPLOAD BUILTY VIEW */}
+          {/* UPLOAD BUILTY VIEW (MANUAL MATCHING) */}
           {/* ========================================================= */}
           {activeView === "upload_builty" && (
             <div className="flex-1 flex flex-col bg-white md:bg-white/95 md:backdrop-blur-xl rounded-none md:rounded-2xl shadow-none md:shadow-xl border-none md:border md:border-white overflow-hidden animate-fade-in relative">
@@ -979,7 +897,7 @@ export default function Dashboard({
                 <div className="p-4 md:p-6 border-b border-slate-100 bg-white/70 backdrop-blur-md sticky top-0 z-20 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 shrink-0">
                   <div>
                     <h2 className="text-xl md:text-2xl font-bold text-slate-900">Upload Builty</h2>
-                    <p className="text-sm text-slate-500 hidden md:block">Invoices awaiting LR Number & Date integration.</p>
+                    <p className="text-sm text-slate-500 hidden md:block">Attach photos to pending invoices manually.</p>
                   </div>
                   
                   <div className="flex flex-col md:flex-row items-stretch md:items-center gap-3 w-full md:w-auto">
@@ -994,43 +912,30 @@ export default function Dashboard({
                       />
                     </div>
                     
-                    {/* CAMERA AND GALLERY BUTTONS */}
+                    {/* CAMERA AND GALLERY BUTTONS OR PREVIEW */}
                     <div className="flex items-center gap-2">
-                        {/* Hidden Input for Camera */}
-                        <input 
-                           type="file" 
-                           accept="image/*" 
-                           capture="environment" 
-                           className="hidden" 
-                           ref={cameraInputRef} 
-                           onChange={handleBuiltyUploadChange}
-                        />
-                        {/* Hidden Input for Gallery */}
-                        <input 
-                           type="file" 
-                           accept="image/*" 
-                           className="hidden" 
-                           ref={galleryInputRef} 
-                           onChange={handleBuiltyUploadChange}
-                        />
-                        
-                        <button 
-                           onClick={() => cameraInputRef.current?.click()}
-                           disabled={isParsingBuilty}
-                           className="flex-1 md:flex-none justify-center bg-blue-600 text-white px-3 md:px-4 h-11 rounded-xl text-sm font-bold shadow-md hover:bg-blue-700 transition-colors flex items-center gap-2 disabled:opacity-50"
-                        >
-                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"></path><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
-                          <span>{isParsingBuilty ? "Wait..." : "Camera"}</span>
-                        </button>
-                        
-                        <button 
-                           onClick={() => galleryInputRef.current?.click()}
-                           disabled={isParsingBuilty}
-                           className="flex-1 md:flex-none justify-center bg-slate-100 text-slate-700 border border-slate-200 px-3 md:px-4 h-11 rounded-xl text-sm font-bold shadow-sm hover:bg-slate-200 transition-colors flex items-center gap-2 disabled:opacity-50"
-                        >
-                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
-                          <span>{isParsingBuilty ? "Wait..." : "Gallery"}</span>
-                        </button>
+                        {builtyFile ? (
+                           <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 px-3 h-11 rounded-xl">
+                              <svg className="w-5 h-5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path></svg>
+                              <span className="text-sm font-bold text-emerald-700">Image Ready</span>
+                              <button onClick={clearBuiltySelection} className="ml-2 p-1 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-full transition-colors">
+                                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                              </button>
+                           </div>
+                        ) : (
+                           <>
+                              <input type="file" accept="image/*" capture="environment" className="hidden" ref={cameraInputRef} onChange={handleBuiltyUploadChange} />
+                              <input type="file" accept="image/*" className="hidden" ref={galleryInputRef} onChange={handleBuiltyUploadChange} />
+                              <button onClick={() => cameraInputRef.current?.click()} className="flex-1 md:flex-none justify-center bg-blue-600 text-white px-3 md:px-4 h-11 rounded-xl text-sm font-bold shadow-md hover:bg-blue-700 transition-colors flex items-center gap-2">
+                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"></path><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                                <span>Camera</span>
+                              </button>
+                              <button onClick={() => galleryInputRef.current?.click()} className="flex-1 md:flex-none justify-center bg-slate-100 text-slate-700 border border-slate-200 px-3 md:px-4 h-11 rounded-xl text-sm font-bold shadow-sm hover:bg-slate-200 transition-colors flex items-center gap-2">
+                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                                <span>Gallery</span>
+                              </button>
+                           </>
+                        )}
                     </div>
                   </div>
                 </div>
@@ -1052,9 +957,13 @@ export default function Dashboard({
                     <>
                       <div className="md:hidden flex flex-col divide-y divide-slate-100">
                         {filteredPendingInvoices.map((inv) => (
-                          <div key={inv.invoice_no} className="p-4 hover:bg-slate-50 transition-colors">
+                          <div 
+                             key={inv.invoice_no} 
+                             onClick={() => handlePendingInvoiceClick(inv)}
+                             className="p-4 hover:bg-blue-50 transition-colors cursor-pointer group"
+                          >
                             <div className="flex justify-between items-start mb-2">
-                              <span className="font-bold text-slate-900">{formatDisplayInvoiceNo(inv.invoice_no)}</span>
+                              <span className="font-bold text-slate-900 group-hover:text-blue-700 transition-colors">{formatDisplayInvoiceNo(inv.invoice_no)}</span>
                               <span className="text-sm font-bold text-slate-400 font-mono">{formatDisplayDate(inv.date)}</span>
                             </div>
                             <div className="mb-2">
@@ -1097,8 +1006,12 @@ export default function Dashboard({
                           </thead>
                           <tbody className="divide-y divide-slate-100 bg-white">
                             {filteredPendingInvoices.map((inv) => (
-                              <tr key={inv.invoice_no} className="hover:bg-slate-50 transition-colors group">
-                                <td className="p-4 pl-6 text-sm font-bold text-slate-900">
+                              <tr 
+                                 key={inv.invoice_no} 
+                                 onClick={() => handlePendingInvoiceClick(inv)}
+                                 className="hover:bg-blue-50/70 transition-colors cursor-pointer group"
+                              >
+                                <td className="p-4 pl-6 text-sm font-bold text-slate-900 group-hover:text-blue-700 transition-colors">
                                   {formatDisplayInvoiceNo(inv.invoice_no)}
                                 </td>
                                 <td className="p-4 text-sm text-slate-600 font-mono tracking-tight">
@@ -1433,56 +1346,56 @@ export default function Dashboard({
         {/* MODALS */}
         {/* ========================================================= */}
 
-        {/* 1. BUILTY MATCH CONFIRMATION MODAL */}
-        {showBuiltyConfirm && matchedInvoice && (
-          <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 transition-all duration-300 animate-fade-in">
-            <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden flex flex-col">
-              <div className="bg-blue-600 p-6 flex flex-col items-center justify-center text-center">
-                <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center mb-3">
-                  <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path></svg>
-                </div>
-                <h2 className="text-xl font-bold text-white">Builty Match Found!</h2>
-                <p className="text-blue-100 text-sm mt-1">We found a pending invoice that perfectly matches this builty.</p>
-              </div>
-              <div className="p-6 bg-slate-50 border-b border-slate-100">
-                <div className="space-y-3 text-sm">
-                   <div className="flex justify-between"><span className="text-slate-500 font-medium">Invoice No:</span> <span className="font-bold text-slate-900">{formatDisplayInvoiceNo(matchedInvoice.invoice_no)}</span></div>
-                   <div className="flex justify-between"><span className="text-slate-500 font-medium">Party Name:</span> <span className="font-bold text-slate-900 truncate max-w-[200px] text-right">{matchedInvoice.sub_account || matchedInvoice.main_account}</span></div>
-                   <div className="flex justify-between"><span className="text-slate-500 font-medium">Transport:</span> <span className="font-bold text-slate-900">{matchedInvoice.transport || "N/A"}</span></div>
-                   <div className="flex justify-between"><span className="text-slate-500 font-medium">Packing/Cases:</span> <span className="font-bold text-slate-900">{matchedInvoice.num_of_cases ? `${matchedInvoice.num_of_cases} ${matchedInvoice.packing_type}` : "N/A"}</span></div>
-                </div>
-              </div>
-              <div className="p-5 flex gap-3">
-                <button onClick={() => setShowBuiltyConfirm(false)} className="flex-1 px-4 py-3 bg-slate-100 text-slate-700 font-bold rounded-xl hover:bg-slate-200 transition-colors">Cancel</button>
-                <button onClick={confirmBuiltyMatch} className="flex-1 px-4 py-3 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 shadow-md transition-colors">Yes, Continue</button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* 2. BUILTY LR EDIT & SAVE MODAL */}
+        {/* 2. BUILTY MANUAL LR EDIT & SAVE MODAL */}
         {showBuiltyEdit && matchedInvoice && (
           <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 transition-all duration-300 animate-fade-in">
-            <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden flex flex-col">
-              <div className="p-5 border-b border-slate-100 flex justify-between items-center">
+            <div className="bg-white w-full max-w-4xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+              {/* Header */}
+              <div className="p-5 border-b border-slate-100 flex justify-between items-center bg-slate-50 shrink-0">
                  <div>
-                    <h2 className="text-lg font-bold text-slate-900">Update LR Details</h2>
+                    <h2 className="text-lg font-bold text-slate-900">Attach Builty & Update LR</h2>
                     <p className="text-xs text-slate-500">Invoice: {formatDisplayInvoiceNo(matchedInvoice.invoice_no)}</p>
                  </div>
-                 <button onClick={() => setShowBuiltyEdit(false)} className="p-2 text-slate-400 hover:bg-slate-100 rounded-full"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg></button>
+                 <button onClick={() => setShowBuiltyEdit(false)} className="p-2 text-slate-400 hover:bg-slate-200 rounded-full transition-colors"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg></button>
               </div>
-              <div className="p-6 space-y-5">
-                 <div>
-                    <label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wider">LR Number (GR No.)</label>
-                    <input type="text" value={builtyForm.lr_number} onChange={(e) => setBuiltyForm({...builtyForm, lr_number: e.target.value})} className="w-full px-4 h-12 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 font-bold text-slate-900" placeholder="e.g. 2195" />
+              
+              {/* Content Body - Scrollable */}
+              <div className="p-6 overflow-y-auto flex flex-col md:flex-row gap-8">
+                 
+                 {/* Left Col: Form */}
+                 <div className="flex-1 space-y-6">
+                    <div className="bg-blue-50/50 p-4 rounded-xl border border-blue-100 space-y-2">
+                       <div className="flex justify-between"><span className="text-slate-500 text-xs font-bold uppercase">Party</span> <span className="font-bold text-slate-900 text-sm text-right">{matchedInvoice.sub_account || matchedInvoice.main_account}</span></div>
+                       <div className="flex justify-between"><span className="text-slate-500 text-xs font-bold uppercase">Transport</span> <span className="font-bold text-slate-900 text-sm text-right">{matchedInvoice.transport || "N/A"}</span></div>
+                       <div className="flex justify-between"><span className="text-slate-500 text-xs font-bold uppercase">Cases</span> <span className="font-bold text-slate-900 text-sm text-right">{matchedInvoice.num_of_cases ? `${matchedInvoice.num_of_cases} ${matchedInvoice.packing_type}` : "N/A"}</span></div>
+                    </div>
+
+                    <div className="space-y-4">
+                       <div>
+                          <label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wider">LR Number (GR No.)</label>
+                          <input type="text" value={builtyForm.lr_number} onChange={(e) => setBuiltyForm({...builtyForm, lr_number: e.target.value})} className="w-full px-4 h-12 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 font-bold text-slate-900 transition-all" placeholder="Enter LR Number manually..." />
+                       </div>
+                       <div>
+                          <label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wider">LR Date</label>
+                          <input type="date" value={builtyForm.lr_date} onChange={(e) => setBuiltyForm({...builtyForm, lr_date: e.target.value})} className="w-full px-4 h-12 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 font-bold text-slate-900 transition-all" />
+                       </div>
+                    </div>
                  </div>
-                 <div>
-                    <label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wider">LR Date</label>
-                    <input type="date" value={builtyForm.lr_date} onChange={(e) => setBuiltyForm({...builtyForm, lr_date: e.target.value})} className="w-full px-4 h-12 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 font-bold text-slate-900" />
+
+                 {/* Right Col: Image Preview */}
+                 <div className="flex-1 flex flex-col items-center justify-center bg-slate-100 rounded-xl border border-slate-200 p-2 overflow-hidden min-h-[300px]">
+                    {builtyPreviewUrl ? (
+                       <img src={builtyPreviewUrl} alt="Builty Preview" className="max-w-full max-h-[400px] object-contain rounded-lg shadow-sm" />
+                    ) : (
+                       <span className="text-slate-400 font-medium">No Image Loaded</span>
+                    )}
                  </div>
+
               </div>
-              <div className="p-5 border-t border-slate-100 bg-slate-50">
-                 <button onClick={saveBuiltyToDatabase} disabled={isSavingBuilty} className="w-full px-4 py-3.5 bg-emerald-600 text-white font-bold rounded-xl hover:bg-emerald-700 shadow-md transition-colors disabled:opacity-50">
+
+              {/* Footer */}
+              <div className="p-5 border-t border-slate-100 bg-slate-50 shrink-0">
+                 <button onClick={saveBuiltyToDatabase} disabled={isSavingBuilty || !builtyForm.lr_number} className="w-full px-4 py-3.5 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 shadow-md shadow-blue-600/20 transition-all disabled:opacity-50 flex justify-center items-center gap-2">
                     {isSavingBuilty ? "Saving Image & Details..." : "Save Builty & Update Invoice"}
                  </button>
               </div>
