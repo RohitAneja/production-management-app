@@ -367,8 +367,13 @@ export default function Dashboard({
     setShowBuiltyEdit(true); 
   };
 
-  const saveBuiltyToDatabase = async () => {
-    if (!matchedInvoice || !builtyFile) return;
+ const saveBuiltyToDatabase = async () => {
+    // 1. Safety check: Ensure both the invoice and the file exist
+    if (!matchedInvoice || !builtyFile) {
+      setBuiltyStatus({ type: "error", text: "Missing invoice data or image file. Please try again." });
+      return;
+    }
+    
     setIsSavingBuilty(true);
     setBuiltyStatus({ type: "info", text: "Uploading image to secure cloud storage..." });
 
@@ -394,14 +399,26 @@ export default function Dashboard({
 
        if (dbErr) throw dbErr;
 
-       const localUrl = URL.createObjectURL(builtyFile);
-       const a = document.createElement("a");
-       a.href = localUrl;
-       a.download = fileName; 
-       document.body.appendChild(a);
-       a.click();
-       document.body.removeChild(a);
-       URL.revokeObjectURL(localUrl);
+       // 2. BULLETPROOF LOCAL DOWNLOAD: Only attempt if URL.createObjectURL is supported and builtyFile is definitely a File/Blob
+       try {
+           if (typeof window.URL.createObjectURL === 'function' && builtyFile instanceof Blob) {
+               const localUrl = window.URL.createObjectURL(builtyFile);
+               const a = document.createElement("a");
+               a.href = localUrl;
+               a.download = fileName; 
+               document.body.appendChild(a);
+               a.click();
+               document.body.removeChild(a);
+               
+               // Clean up the URL object slightly later to ensure download starts on slow mobile browsers
+               setTimeout(() => {
+                   window.URL.revokeObjectURL(localUrl);
+               }, 1000);
+           }
+       } catch (downloadErr) {
+           console.warn("Local download skipped (Mobile Browser Restriction):", downloadErr);
+           // We do not throw this error because the database save was successful!
+       }
 
        setBuiltyStatus({ type: "success", text: "Builty securely uploaded and linked to Invoice!" });
        setTimeout(() => {
@@ -413,11 +430,11 @@ export default function Dashboard({
        }, 2000);
 
     } catch (err: any) {
+       console.error("Save Error:", err);
        setBuiltyStatus({ type: "error", text: "Failed to save: " + (err.message || "Unknown Error") });
     }
     setIsSavingBuilty(false);
   };
-
 
   // ==========================================
   // FORM HANDLERS (Users & Settings)
