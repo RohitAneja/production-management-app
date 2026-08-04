@@ -35,10 +35,10 @@ export default function Dashboard({
   currentTime,
 }: DashboardProps) {
   const userRoleUpper = userRole ? userRole.trim().toUpperCase() : "";
-
+  const [isVerticalMode, setIsVerticalMode] = useState(true);
+  const [isMobileView, setIsMobileView] = useState(true); // Added to handle Tablet as Mobile
   const [isMounted, setIsMounted] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [isVerticalMode, setIsVerticalMode] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [activeView, setActiveView] = useState("dashboard");
   const [expandedMenu, setExpandedMenu] = useState<string | null>(null);
@@ -120,6 +120,7 @@ export default function Dashboard({
     if (typeof window !== "undefined") {
       const checkOrientation = () => {
         setIsVerticalMode(window.innerHeight > window.innerWidth);
+        setIsMobileView(window.innerWidth < 1024); // Force mobile view for tablets under 1024px
       };
       
       checkOrientation(); // Initial check
@@ -256,6 +257,7 @@ export default function Dashboard({
     if (activeView === "upload_builty") { fetchPendingInvoices(); setPendingSearchQuery(""); }
   }, [activeView]);
 
+  
   const formatDisplayDate = (dbDate: any) => {
     if (!dbDate) return "";
     const strDate = String(dbDate);
@@ -847,6 +849,20 @@ export default function Dashboard({
     } catch (err) { setIsSaving(false); setSaveStatus({ type: "error", text: "An unexpected error occurred." }); }
   };
 
+  // =========================================================
+  // RENDER SAFETY BLOCK (Prevents White Screen Crash)
+  // =========================================================
+  if (!isMounted) {
+    return (
+      <div className="h-[100dvh] w-full flex items-center justify-center bg-slate-50 text-slate-500">
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-10 h-10 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin"></div>
+          <p className="font-medium animate-pulse">Loading Dashboard...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="h-[100dvh] w-full flex overflow-hidden font-sans bg-slate-50 text-slate-900">
       
@@ -1018,9 +1034,7 @@ export default function Dashboard({
                       </button>
                     </div>
 
-                    {!isMounted ? (
-                      <div className="flex justify-center items-center p-12"><div className="w-8 h-8 border-4 border-emerald-200 border-t-emerald-600 rounded-full animate-spin"></div></div>
-                    ) : isVerticalMode ? (
+                    {isMobileView ? (
                       <div className="flex flex-col gap-4">
                         {scannedInvoices.map((inv, idx) => (
                           <div key={idx} className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
@@ -1171,13 +1185,13 @@ export default function Dashboard({
                 )}
 
                 <div className="flex-1 overflow-y-auto p-0 lg:p-6 pt-4 lg:pt-4">
-                  {isLoadingPending || !isMounted ? (
+                  {isLoadingPending ? (
                     <div className="flex justify-center items-center h-full min-h-[400px]">
                       <div className="w-10 h-10 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin"></div>
                     </div>
                   ) : (
                     <>
-                      {isVerticalMode ? (
+                      {isMobileView ? (
                         <div className="flex flex-col divide-y divide-slate-100">
                           {filteredPendingInvoices.map((inv) => (
                             <div 
@@ -1304,13 +1318,13 @@ export default function Dashboard({
                 </div>
                 
                 <div className="flex-1 overflow-y-auto">
-                  {isLoadingInvoices || !isMounted ? (
+                  {isLoadingInvoices ? (
                     <div className="flex justify-center items-center h-full min-h-[400px]">
                       <div className="w-10 h-10 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin"></div>
                     </div>
                   ) : (
                     <>
-                      {isVerticalMode ? (
+                      {isMobileView ? (
                         <div className="flex flex-col divide-y divide-slate-100">
                           {filteredRegisterInvoices.map((inv) => (
                             <div key={inv.invoice_no} onClick={() => setSelectedInvoice(inv)} className="p-4 hover:bg-blue-50/50 transition-colors cursor-pointer flex flex-col">
@@ -1512,7 +1526,7 @@ export default function Dashboard({
                 </div>
                 
                 <div className="flex-1 overflow-x-auto overflow-y-auto lg:border border-slate-200 lg:rounded-xl">
-                  {isLoadingUsers || !isMounted ? (
+                  {isLoadingUsers ? (
                     <div className="flex justify-center items-center h-full">
                       <div className="w-10 h-10 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin"></div>
                     </div>
