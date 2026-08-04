@@ -82,7 +82,6 @@ export default function Dashboard({
   const [isLoadingPending, setIsLoadingPending] = useState(false);
   const [pendingSearchQuery, setPendingSearchQuery] = useState("");
   
-  // NEW: Split Refs for Camera and Gallery
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
   
@@ -286,44 +285,73 @@ export default function Dashboard({
   }, {} as Record<string, number>);
 
   // ==========================================
-  // BUILTY UPLOAD & MATCHING LOGIC
+  // CLIENT-SIDE BROWSER OCR (FIXED VERCEL CRASH)
   // ==========================================
   const handleBuiltyUploadChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
       setBuiltyFile(file);
       setIsParsingBuilty(true);
-      setBuiltyStatus({ type: "info", text: "Analyzing Builty image with AI..." });
+      setBuiltyStatus({ type: "info", text: "Analyzing Builty image natively on your device..." });
 
       try {
-        const formData = new FormData();
-        formData.append("file", file);
+        // Dynamically import Tesseract to ensure it only runs in the browser
+        const Tesseract = (await import('tesseract.js')).default;
         
         const pendingNos = pendingInvoices.map(inv => formatDisplayInvoiceNo(inv.invoice_no));
-        formData.append("pending_invoices", JSON.stringify(pendingNos));
 
-        const response = await fetch('/api/parse-builty', { method: 'POST', body: formData });
-        const data = await response.json();
+        // RUN AI DIRECTLY IN THE BROWSER (Lightning Fast, No Server Timeouts!)
+        const { data: { text } } = await Tesseract.recognize(file, 'eng', {
+            logger: m => console.log(m)
+        });
         
-        if (data.success && data.matched_invoice_no) {
-           const matched = pendingInvoices.find(i => formatDisplayInvoiceNo(i.invoice_no) === data.matched_invoice_no);
+        const rawText = text || "";
+        console.log("Browser Scanned Text:", rawText);
+
+        // Extract LR Number
+        let extractedLrNumber = "";
+        const grMatch = rawText.match(/G\.?R\.?\s*No[\.\s:-]*(\d+)/i) || rawText.match(/No[\.\s:-]*(\d{4,})/i);
+        if (grMatch && grMatch[1]) {
+          extractedLrNumber = grMatch[1].trim();
+        }
+
+        // Extract LR Date
+        let extractedLrDate = new Date().toISOString().split('T')[0];
+        const dateMatch = rawText.match(/(\d{2})[-/](\d{2})[-/](\d{4})/);
+        if (dateMatch) {
+          extractedLrDate = `${dateMatch[3]}-${dateMatch[2]}-${dateMatch[1]}`; 
+        }
+
+        // Match with Pending List
+        let matchedInvoiceNo = null;
+        for (const pendingNo of pendingNos) {
+          const exactMatchRegex = new RegExp(`\\b${pendingNo}\\b`, 'i');
+          if (exactMatchRegex.test(rawText)) {
+            matchedInvoiceNo = pendingNo;
+            break;
+          }
+        }
+
+        // Process Result
+        if (matchedInvoiceNo) {
+           const matched = pendingInvoices.find(i => formatDisplayInvoiceNo(i.invoice_no) === matchedInvoiceNo);
            if (matched) {
               setMatchedInvoice(matched);
-              setBuiltyForm({ lr_number: data.lr_number || "", lr_date: data.lr_date || new Date().toISOString().split('T')[0] });
+              setBuiltyForm({ lr_number: extractedLrNumber, lr_date: extractedLrDate });
               setBuiltyStatus({ type: "", text: "" });
               setShowBuiltyConfirm(true); 
            } else {
-              setBuiltyStatus({ type: "error", text: `Builty matched Invoice #${data.matched_invoice_no}, but it is not in the pending list.` });
+              setBuiltyStatus({ type: "error", text: `Builty matched Invoice #${matchedInvoiceNo}, but it is not in the pending list.` });
            }
         } else {
-           setBuiltyStatus({ type: "error", text: data.error || "Could not read builty details or find a matching invoice." });
+           setBuiltyStatus({ type: "error", text: "Could not find any pending Invoice Number in this photo. Please retake the photo clearly." });
         }
       } catch (err: any) {
-        setBuiltyStatus({ type: "error", text: "Server connection failed. Please try again." });
+        console.error(err);
+        setBuiltyStatus({ type: "error", text: "Image processing failed. Please try a different photo." });
       }
+
       setIsParsingBuilty(false);
-      
-      // Reset both inputs so they can be clicked again
       if (cameraInputRef.current) cameraInputRef.current.value = "";
       if (galleryInputRef.current) galleryInputRef.current.value = "";
     }
@@ -647,7 +675,7 @@ export default function Dashboard({
         { name: "Upload Builty", id: "upload_builty", icon: "M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" }
       ]
     },
-    { name: "Production", id: "production", icon: "M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" },
+    { name: "Production", id: "production", icon: "M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" },
     { name: "Reports", id: "reports", icon: "M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" }
   ];
 
