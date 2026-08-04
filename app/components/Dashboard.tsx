@@ -284,29 +284,36 @@ export default function Dashboard({
     return acc;
   }, {} as Record<string, number>);
 
-  // ==========================================
-  // CLIENT-SIDE BROWSER OCR (FIXED VERCEL CRASH)
+ // ==========================================
+  // CLIENT-SIDE BROWSER OCR (FIXED FOR MOBILE)
   // ==========================================
   const handleBuiltyUploadChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
       setBuiltyFile(file);
       setIsParsingBuilty(true);
-      setBuiltyStatus({ type: "info", text: "Analyzing Builty image natively on your device..." });
+      setBuiltyStatus({ type: "info", text: "Initializing OCR Engine..." });
+
+      let imageUrl = "";
 
       try {
-        // Use a more robust dynamic import that Webpack/Next.js prefers for client components
-        const tesseractModule = await import('tesseract.js');
-        const recognize = tesseractModule.recognize || tesseractModule.default?.recognize;
+        // 1. Create a safe local URL to bypass mobile memory restrictions
+        imageUrl = URL.createObjectURL(file);
+
+        // 2. Import Tesseract securely for Next.js
+        setBuiltyStatus({ type: "info", text: "Loading AI model..." });
+        const Tesseract = await import('tesseract.js');
+        const recognize = Tesseract.recognize || Tesseract.default?.recognize;
 
         if (!recognize) {
-             throw new Error("OCR module failed to load properly.");
+             throw new Error("OCR module failed to load.");
         }
         
         const pendingNos = pendingInvoices.map(inv => formatDisplayInvoiceNo(inv.invoice_no));
 
-        // RUN AI DIRECTLY IN THE BROWSER (Lightning Fast, No Server Timeouts!)
-        const { data: { text } } = await recognize(file, 'eng', {
+        // 3. RUN AI DIRECTLY IN THE BROWSER
+        setBuiltyStatus({ type: "info", text: "Reading text from photo..." });
+        const { data: { text } } = await recognize(imageUrl, 'eng', {
             logger: m => console.log(m)
         });
         
@@ -353,15 +360,19 @@ export default function Dashboard({
         }
       } catch (err: any) {
         console.error("OCR Catch Error:", err);
-        setBuiltyStatus({ type: "error", text: "Image processing failed. Please ensure your browser supports this feature or try again." });
+        setBuiltyStatus({ type: "error", text: "Image processing failed. Error: " + (err.message || "Unknown") });
+      } finally {
+        // Cleanup the URL to prevent memory leaks
+        if (imageUrl) URL.revokeObjectURL(imageUrl);
+        setIsParsingBuilty(false);
+        
+        // Reset both inputs so they can be clicked again
+        if (cameraInputRef.current) cameraInputRef.current.value = "";
+        if (galleryInputRef.current) galleryInputRef.current.value = "";
       }
-
-      setIsParsingBuilty(false);
-      if (cameraInputRef.current) cameraInputRef.current.value = "";
-      if (galleryInputRef.current) galleryInputRef.current.value = "";
     }
   };
-
+  
   const confirmBuiltyMatch = () => {
     setShowBuiltyConfirm(false);
     setShowBuiltyEdit(true); 
