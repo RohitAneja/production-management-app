@@ -58,7 +58,7 @@ export default function Dashboard({
   const [editUserStatus, setEditUserStatus] = useState({ type: "", text: "" });
   const [editUserForm, setEditUserForm] = useState({ id: "", username: "", email: "", mobile_number: "", role_id: "", user_status: "active" });
 
-  // Invoice Upload States (PDF & Excel)
+  // Invoice Upload States
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [isScanning, setIsScanning] = useState(false);
@@ -90,13 +90,12 @@ export default function Dashboard({
   const [builtyStatus, setBuiltyStatus] = useState({ type: "", text: "" });
   
   const [matchedInvoice, setMatchedInvoice] = useState<any | null>(null);
-  const [showBuiltyConfirm, setShowBuiltyConfirm] = useState(false);
   const [showBuiltyEdit, setShowBuiltyEdit] = useState(false);
   const [builtyForm, setBuiltyForm] = useState({ lr_number: "", lr_date: "" });
   const [isSavingBuilty, setIsSavingBuilty] = useState(false);
 
   // ==========================================
-  // HELPERS & LIFECYCLE
+  // HELPERS & LIFECYCLE (UPDATED FOR BACK GESTURE)
   // ==========================================
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -109,10 +108,11 @@ export default function Dashboard({
 
   useEffect(() => {
     const handlePopState = (e: PopStateEvent) => {
-      if (isAddUserOpen) setIsAddUserOpen(false); 
+      // Prioritize closing the mobile sidebar first if it's open and user swipes back
+      if (isSidebarOpen && isVerticalMode) setIsSidebarOpen(false);
+      else if (isAddUserOpen) setIsAddUserOpen(false); 
       else if (isEditUserOpen) setIsEditUserOpen(false);
       else if (selectedInvoice) setSelectedInvoice(null);
-      else if (showBuiltyConfirm) setShowBuiltyConfirm(false);
       else if (showBuiltyEdit) setShowBuiltyEdit(false);
       else {
         if (e.state && e.state.view) setActiveView(e.state.view);
@@ -121,22 +121,46 @@ export default function Dashboard({
     };
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
-  }, [isAddUserOpen, isEditUserOpen, selectedInvoice, showBuiltyConfirm, showBuiltyEdit]);
+  }, [isAddUserOpen, isEditUserOpen, selectedInvoice, showBuiltyEdit, isSidebarOpen, isVerticalMode]);
 
   const handleNavigation = (id: string) => {
     if (id !== activeView) {
-      window.history.pushState({ view: id }, "");
+      if (isVerticalMode && isSidebarOpen) {
+        // If sidebar is open, replace its history state so navigation stays clean
+        window.history.replaceState({ view: id }, "");
+      } else {
+        window.history.pushState({ view: id }, "");
+      }
       setActiveView(id);
+      setIsSidebarOpen(false); 
+    } else {
+      // If clicking the current view while sidebar is open, just close it and pop the state
+      if (isVerticalMode && isSidebarOpen) {
+        setIsSidebarOpen(false);
+        window.history.back();
+      } else {
+        setIsSidebarOpen(false);
+      }
     }
-    setIsSidebarOpen(false); 
   };
 
   const goHome = () => {
     if (activeView !== "dashboard") {
-      window.history.pushState({ view: "dashboard" }, "");
+      if (isVerticalMode && isSidebarOpen) {
+        window.history.replaceState({ view: "dashboard" }, "");
+      } else {
+        window.history.pushState({ view: "dashboard" }, "");
+      }
       setActiveView("dashboard");
+      setIsSidebarOpen(false);
+    } else {
+      if (isVerticalMode && isSidebarOpen) {
+        setIsSidebarOpen(false);
+        window.history.back();
+      } else {
+        setIsSidebarOpen(false);
+      }
     }
-    setIsSidebarOpen(false);
   };
 
   const openAddUserModal = () => { window.history.pushState({ modal: 'add' }, ""); setIsAddUserOpen(true); };
@@ -288,7 +312,6 @@ export default function Dashboard({
       setBuiltyPreviewUrl(URL.createObjectURL(file));
       setBuiltyStatus({ type: "success", text: "Image Ready! Please select a pending invoice below." });
       
-      // Reset inputs so they can be triggered again
       if (cameraInputRef.current) cameraInputRef.current.value = "";
       if (galleryInputRef.current) galleryInputRef.current.value = "";
     }
@@ -622,7 +645,6 @@ export default function Dashboard({
   let menuOptions: any[] = [];
   const userRoleUpper = userRole ? userRole.trim().toUpperCase() : "";
 
-  // RBAC: If User is GATE, show ONLY the Gate Entry functionality.
   if (userRoleUpper === "GATE") {
     menuOptions = [
       {
@@ -635,7 +657,6 @@ export default function Dashboard({
       }
     ];
   } else {
-    // Normal Menu for ADMIN and OPERATOR
     menuOptions = [
       { name: "Orders", id: "orders", icon: "M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" },
       { 
@@ -682,11 +703,22 @@ export default function Dashboard({
   return (
     <div className="h-screen w-full flex overflow-hidden font-sans bg-slate-50 text-slate-900">
       
+      {/* MOBILE SIDEBAR OVERLAY (CLOSES MENU ON CLICK) */}
+      {isSidebarOpen && isVerticalMode && (
+        <div 
+          className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-30 animate-fade-in"
+          onClick={() => {
+            setIsSidebarOpen(false);
+            window.history.back(); // Pops the history state nicely
+          }}
+        />
+      )}
+
       {/* SIDEBAR */}
       <aside 
         onMouseEnter={() => !isVerticalMode && setIsSidebarOpen(true)}
         onMouseLeave={() => !isVerticalMode && setIsSidebarOpen(false)}
-        className={`${isSidebarOpen ? 'w-64 border-r border-slate-200' : 'w-0 border-r-0'} bg-white transition-all duration-300 flex flex-col z-40 shadow-[4px_0_24px_rgba(0,0,0,0.02)] shrink-0 overflow-hidden absolute md:relative h-full`}
+        className={`${isSidebarOpen ? 'w-64 border-r border-slate-200 shadow-2xl md:shadow-[4px_0_24px_rgba(0,0,0,0.02)]' : 'w-0 border-r-0'} bg-white transition-all duration-300 flex flex-col z-40 shrink-0 overflow-hidden absolute md:relative h-full`}
       >
         <div className="w-64 flex flex-col h-full shrink-0">
           <div onClick={goHome} className="h-16 flex items-center justify-center border-b border-slate-100 p-2 cursor-pointer hover:bg-slate-50 transition-colors shrink-0">
@@ -729,9 +761,24 @@ export default function Dashboard({
       <main className="flex-1 flex flex-col relative bg-[url('/bg-mobile.jpg')] md:bg-[url('/bg-desktop.jpg')] bg-cover bg-center bg-no-repeat bg-blend-overlay bg-white/90 overflow-y-auto">
         <header className="h-16 bg-white/70 backdrop-blur-md border-b border-slate-200/50 flex justify-between items-center px-4 md:px-8 shadow-sm shrink-0 z-10">
           <div className="flex items-center gap-4">
-            <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="p-2 text-slate-500 hover:text-slate-900 hover:bg-white/50 rounded-lg transition-colors">
+            
+            {/* UPDATED HAMBURGER BUTTON */}
+            <button onClick={() => {
+              if (isVerticalMode) {
+                if (isSidebarOpen) {
+                  setIsSidebarOpen(false);
+                  window.history.back();
+                } else {
+                  window.history.pushState({ sidebar: true }, "");
+                  setIsSidebarOpen(true);
+                }
+              } else {
+                setIsSidebarOpen(!isSidebarOpen);
+              }
+            }} className="p-2 text-slate-500 hover:text-slate-900 hover:bg-white/50 rounded-lg transition-colors">
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
             </button>
+            
             <h1 className="text-slate-400 font-bold hidden md:block">
               {isVerticalMode ? (isSidebarOpen ? "Select" : "Select") : (isSidebarOpen ? "Select an option from the menu" : "Select an option from the menu")}
             </h1>
