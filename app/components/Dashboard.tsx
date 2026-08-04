@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { createClient } from "@supabase/supabase-js";
 import * as XLSX from "xlsx";
-import Tesseract from 'tesseract.js'; // IMPORTING AT THE TOP NOW
+import Tesseract from 'tesseract.js';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -59,7 +59,7 @@ export default function Dashboard({
   const [editUserStatus, setEditUserStatus] = useState({ type: "", text: "" });
   const [editUserForm, setEditUserForm] = useState({ id: "", username: "", email: "", mobile_number: "", role_id: "", user_status: "active" });
 
-  // Invoice Upload States (PDF & Excel)
+  // Invoice Upload States
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [isScanning, setIsScanning] = useState(false);
@@ -198,10 +198,6 @@ export default function Dashboard({
     if (activeView === "upload_builty") { fetchPendingInvoices(); setPendingSearchQuery(""); }
   }, [activeView]);
 
-  // ------------------------------------------
-  // DISPLAY FORMATTER HELPERS
-  // ------------------------------------------
-
   const formatDisplayDate = (dbDate: any) => {
     if (!dbDate) return "";
     const strDate = String(dbDate);
@@ -232,9 +228,6 @@ export default function Dashboard({
     else if (scrollTop > 100 && isUploadPanelOpen && scannedInvoices.length > 0) setIsUploadPanelOpen(false);
   };
 
-  // ==========================================
-  // BULLETPROOF SEARCH & WHATSAPP HELPERS
-  // ==========================================
   const safeSearch = (fieldValue: any, query: string) => {
     if (fieldValue === null || fieldValue === undefined) return false;
     return String(fieldValue).toLowerCase().includes(query.toLowerCase());
@@ -285,57 +278,79 @@ export default function Dashboard({
     return acc;
   }, {} as Record<string, number>);
 
+
   // ==========================================
-  // CLIENT-SIDE BROWSER OCR (FATAL CRASH FIXED)
+  // IMAGE COMPRESSION HELPER (PREVENTS RAM CRASH)
+  // ==========================================
+  const compressImage = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const img = new window.Image();
+      const objectUrl = URL.createObjectURL(file);
+      
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const MAX_WIDTH = 1200; // Shrinks massive 4K phone photos safely
+        const scaleSize = MAX_WIDTH / img.width;
+        
+        canvas.width = Math.min(img.width, MAX_WIDTH);
+        canvas.height = img.height * (scaleSize < 1 ? scaleSize : 1);
+        
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+            const compressedBase64 = canvas.toDataURL('image/jpeg', 0.8); // 80% quality JPG
+            URL.revokeObjectURL(objectUrl);
+            resolve(compressedBase64);
+        } else {
+            reject(new Error("Canvas context failed"));
+        }
+      };
+      img.onerror = (err) => {
+          URL.revokeObjectURL(objectUrl);
+          reject(err);
+      };
+      img.src = objectUrl;
+    });
+  };
+
+  // ==========================================
+  // CLIENT-SIDE BROWSER OCR
   // ==========================================
   const handleBuiltyUploadChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
-      setBuiltyFile(file);
+      setBuiltyFile(file); // Save the original file to state for uploading to Supabase later
       setIsParsingBuilty(true);
-      setBuiltyStatus({ type: "info", text: "Initializing Mobile OCR Engine..." });
-
-      let imageUrl = "";
-
+      
       try {
-        imageUrl = URL.createObjectURL(file);
-        setBuiltyStatus({ type: "info", text: "Loading AI model..." });
+        // 1. COMPRESS THE IMAGE IMMEDIATELY
+        setBuiltyStatus({ type: "info", text: "Optimizing image for fast scan..." });
+        const compressedBase64 = await compressImage(file);
+
+        // 2. RUN LIGHTWEIGHT TESSERACT SCAN
+        setBuiltyStatus({ type: "info", text: "Reading text from document..." });
+        const { data: { text } } = await Tesseract.recognize(compressedBase64, 'eng');
         
-        // 1. Create a strictly controlled Worker using native Tesseract API
-        const worker = await Tesseract.createWorker('eng', 1, {
-            logger: m => {
-                if (m.status === 'recognizing text') {
-                    setBuiltyStatus({ type: "info", text: `Scanning document... ${Math.round(m.progress * 100)}%` });
-                }
-            }
-        });
-        
+        const rawText = text || "";
+        console.log("Extracted Text:", rawText);
+
         const pendingNos = pendingInvoices.map(inv => formatDisplayInvoiceNo(inv.invoice_no));
 
-        // 2. RUN AI
-        const { data: { text } } = await worker.recognize(imageUrl);
-        
-        // 3. TERMINATE IMMEDIATELY (Prevents memory leaks and crashes on mobile!)
-        await worker.terminate();
-
-        const rawText = text || "";
-        console.log("Browser Scanned Text:", rawText);
-
-        // 4. Extract LR Number
+        // Extract LR Number
         let extractedLrNumber = "";
         const grMatch = rawText.match(/G\.?R\.?\s*No[\.\s:-]*(\d+)/i) || rawText.match(/No[\.\s:-]*(\d{4,})/i);
         if (grMatch && grMatch[1]) {
           extractedLrNumber = grMatch[1].trim();
         }
 
-        // 5. Extract LR Date
+        // Extract LR Date
         let extractedLrDate = new Date().toISOString().split('T')[0];
         const dateMatch = rawText.match(/(\d{2})[-/](\d{2})[-/](\d{4})/);
         if (dateMatch) {
           extractedLrDate = `${dateMatch[3]}-${dateMatch[2]}-${dateMatch[1]}`; 
         }
 
-        // 6. Match with Pending List
+        // Match with Pending List
         let matchedInvoiceNo = null;
         for (const pendingNo of pendingNos) {
           const exactMatchRegex = new RegExp(`\\b${pendingNo}\\b`, 'i');
@@ -345,7 +360,7 @@ export default function Dashboard({
           }
         }
 
-        // 7. Process Result
+        // Process Result
         if (matchedInvoiceNo) {
            const matched = pendingInvoices.find(i => formatDisplayInvoiceNo(i.invoice_no) === matchedInvoiceNo);
            if (matched) {
@@ -357,13 +372,12 @@ export default function Dashboard({
               setBuiltyStatus({ type: "error", text: `Builty matched Invoice #${matchedInvoiceNo}, but it is not in the pending list.` });
            }
         } else {
-           setBuiltyStatus({ type: "error", text: "Could not find any pending Invoice Number in this photo. Please retake the photo clearly." });
+           setBuiltyStatus({ type: "error", text: "Could not find any pending Invoice Number in this photo. Please retake clearly." });
         }
       } catch (err: any) {
-        console.error("OCR Catch Error:", err);
+        console.error("Scanning Error:", err);
         setBuiltyStatus({ type: "error", text: "Image processing failed. Error: " + (err.message || "Unknown") });
       } finally {
-        if (imageUrl) URL.revokeObjectURL(imageUrl);
         setIsParsingBuilty(false);
         if (cameraInputRef.current) cameraInputRef.current.value = "";
         if (galleryInputRef.current) galleryInputRef.current.value = "";
