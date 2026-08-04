@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { createClient } from "@supabase/supabase-js";
 import * as XLSX from "xlsx";
+import Tesseract from 'tesseract.js'; // IMPORTING AT THE TOP NOW
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -284,15 +285,15 @@ export default function Dashboard({
     return acc;
   }, {} as Record<string, number>);
 
- // ==========================================
-  // CLIENT-SIDE BROWSER OCR (FIXED NEXT.JS WORKER BUG)
+  // ==========================================
+  // CLIENT-SIDE BROWSER OCR (FATAL CRASH FIXED)
   // ==========================================
   const handleBuiltyUploadChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
       setBuiltyFile(file);
       setIsParsingBuilty(true);
-      setBuiltyStatus({ type: "info", text: "Initializing OCR Engine..." });
+      setBuiltyStatus({ type: "info", text: "Initializing Mobile OCR Engine..." });
 
       let imageUrl = "";
 
@@ -300,47 +301,41 @@ export default function Dashboard({
         imageUrl = URL.createObjectURL(file);
         setBuiltyStatus({ type: "info", text: "Loading AI model..." });
         
-        const Tesseract = await import('tesseract.js');
-        const recognize = Tesseract.recognize || Tesseract.default?.recognize;
-
-        if (!recognize) {
-             throw new Error("OCR module failed to load.");
-        }
+        // 1. Create a strictly controlled Worker using native Tesseract API
+        const worker = await Tesseract.createWorker('eng', 1, {
+            logger: m => {
+                if (m.status === 'recognizing text') {
+                    setBuiltyStatus({ type: "info", text: `Scanning document... ${Math.round(m.progress * 100)}%` });
+                }
+            }
+        });
         
         const pendingNos = pendingInvoices.map(inv => formatDisplayInvoiceNo(inv.invoice_no));
 
-        // RUN AI WITH EXPLICIT CDN PATHS (Bypasses Next.js 404 bugs completely)
-        const { data: { text } } = await recognize(imageUrl, 'eng', {
-            logger: m => {
-                console.log(m);
-                if (m.status === 'recognizing text') {
-                    // Show real-time scanning progress!
-                    setBuiltyStatus({ type: "info", text: `Scanning document... ${Math.round(m.progress * 100)}%` });
-                }
-            },
-            workerPath: 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/worker.min.js',
-            langPath: 'https://tessdata.projectnaptha.com/4.0.0',
-            corePath: 'https://cdn.jsdelivr.net/npm/tesseract.js-core@5',
-        });
+        // 2. RUN AI
+        const { data: { text } } = await worker.recognize(imageUrl);
         
+        // 3. TERMINATE IMMEDIATELY (Prevents memory leaks and crashes on mobile!)
+        await worker.terminate();
+
         const rawText = text || "";
         console.log("Browser Scanned Text:", rawText);
 
-        // Extract LR Number
+        // 4. Extract LR Number
         let extractedLrNumber = "";
         const grMatch = rawText.match(/G\.?R\.?\s*No[\.\s:-]*(\d+)/i) || rawText.match(/No[\.\s:-]*(\d{4,})/i);
         if (grMatch && grMatch[1]) {
           extractedLrNumber = grMatch[1].trim();
         }
 
-        // Extract LR Date
+        // 5. Extract LR Date
         let extractedLrDate = new Date().toISOString().split('T')[0];
         const dateMatch = rawText.match(/(\d{2})[-/](\d{2})[-/](\d{4})/);
         if (dateMatch) {
           extractedLrDate = `${dateMatch[3]}-${dateMatch[2]}-${dateMatch[1]}`; 
         }
 
-        // Match with Pending List
+        // 6. Match with Pending List
         let matchedInvoiceNo = null;
         for (const pendingNo of pendingNos) {
           const exactMatchRegex = new RegExp(`\\b${pendingNo}\\b`, 'i');
@@ -350,7 +345,7 @@ export default function Dashboard({
           }
         }
 
-        // Process Result
+        // 7. Process Result
         if (matchedInvoiceNo) {
            const matched = pendingInvoices.find(i => formatDisplayInvoiceNo(i.invoice_no) === matchedInvoiceNo);
            if (matched) {
@@ -374,19 +369,15 @@ export default function Dashboard({
         if (galleryInputRef.current) galleryInputRef.current.value = "";
       }
     }
-  }; 
+  };
+
   const confirmBuiltyMatch = () => {
     setShowBuiltyConfirm(false);
     setShowBuiltyEdit(true); 
   };
 
- const saveBuiltyToDatabase = async () => {
-    // 1. Safety check: Ensure both the invoice and the file exist
-    if (!matchedInvoice || !builtyFile) {
-      setBuiltyStatus({ type: "error", text: "Missing invoice data or image file. Please try again." });
-      return;
-    }
-    
+  const saveBuiltyToDatabase = async () => {
+    if (!matchedInvoice || !builtyFile) return;
     setIsSavingBuilty(true);
     setBuiltyStatus({ type: "info", text: "Uploading image to secure cloud storage..." });
 
@@ -412,7 +403,6 @@ export default function Dashboard({
 
        if (dbErr) throw dbErr;
 
-       // 2. BULLETPROOF LOCAL DOWNLOAD: Only attempt if URL.createObjectURL is supported and builtyFile is definitely a File/Blob
        try {
            if (typeof window.URL.createObjectURL === 'function' && builtyFile instanceof Blob) {
                const localUrl = window.URL.createObjectURL(builtyFile);
@@ -422,15 +412,10 @@ export default function Dashboard({
                document.body.appendChild(a);
                a.click();
                document.body.removeChild(a);
-               
-               // Clean up the URL object slightly later to ensure download starts on slow mobile browsers
-               setTimeout(() => {
-                   window.URL.revokeObjectURL(localUrl);
-               }, 1000);
+               setTimeout(() => { window.URL.revokeObjectURL(localUrl); }, 1000);
            }
        } catch (downloadErr) {
-           console.warn("Local download skipped (Mobile Browser Restriction):", downloadErr);
-           // We do not throw this error because the database save was successful!
+           console.warn("Local download skipped:", downloadErr);
        }
 
        setBuiltyStatus({ type: "success", text: "Builty securely uploaded and linked to Invoice!" });
@@ -448,6 +433,7 @@ export default function Dashboard({
     }
     setIsSavingBuilty(false);
   };
+
 
   // ==========================================
   // FORM HANDLERS (Users & Settings)
@@ -710,7 +696,7 @@ export default function Dashboard({
         { name: "Upload Builty", id: "upload_builty", icon: "M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" }
       ]
     },
-    { name: "Production", id: "production", icon: "M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" },
+    { name: "Production", id: "production", icon: "M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" },
     { name: "Reports", id: "reports", icon: "M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" }
   ];
 
