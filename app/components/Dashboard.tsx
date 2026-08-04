@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { createClient } from "@supabase/supabase-js";
 import * as XLSX from "xlsx";
+import Tesseract from 'tesseract.js';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -32,6 +33,8 @@ export default function Dashboard({
   handleLogout,
   currentTime,
 }: DashboardProps) {
+  const userRoleUpper = userRole ? userRole.trim().toUpperCase() : "";
+
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isVerticalMode, setIsVerticalMode] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
@@ -90,12 +93,18 @@ export default function Dashboard({
   const [builtyStatus, setBuiltyStatus] = useState({ type: "", text: "" });
   
   const [matchedInvoice, setMatchedInvoice] = useState<any | null>(null);
+  const [showBuiltyConfirm, setShowBuiltyConfirm] = useState(false);
   const [showBuiltyEdit, setShowBuiltyEdit] = useState(false);
   const [builtyForm, setBuiltyForm] = useState({ lr_number: "", lr_date: "" });
   const [isSavingBuilty, setIsSavingBuilty] = useState(false);
 
+  // NEW: Delete Builty Admin States
+  const [invoiceToDeleteBuilty, setInvoiceToDeleteBuilty] = useState<any | null>(null);
+  const [isDeletingBuilty, setIsDeletingBuilty] = useState(false);
+  const [deleteBuiltyStatus, setDeleteBuiltyStatus] = useState({ type: "", text: "" });
+
   // ==========================================
-  // HELPERS & LIFECYCLE (UPDATED FOR BACK GESTURE)
+  // HELPERS & LIFECYCLE
   // ==========================================
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -108,12 +117,12 @@ export default function Dashboard({
 
   useEffect(() => {
     const handlePopState = (e: PopStateEvent) => {
-      // Prioritize closing the mobile sidebar first if it's open and user swipes back
       if (isSidebarOpen && isVerticalMode) setIsSidebarOpen(false);
       else if (isAddUserOpen) setIsAddUserOpen(false); 
       else if (isEditUserOpen) setIsEditUserOpen(false);
       else if (selectedInvoice) setSelectedInvoice(null);
       else if (showBuiltyEdit) setShowBuiltyEdit(false);
+      else if (invoiceToDeleteBuilty) setInvoiceToDeleteBuilty(null);
       else {
         if (e.state && e.state.view) setActiveView(e.state.view);
         else setActiveView("dashboard");
@@ -121,12 +130,11 @@ export default function Dashboard({
     };
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
-  }, [isAddUserOpen, isEditUserOpen, selectedInvoice, showBuiltyEdit, isSidebarOpen, isVerticalMode]);
+  }, [isAddUserOpen, isEditUserOpen, selectedInvoice, showBuiltyEdit, invoiceToDeleteBuilty, isSidebarOpen, isVerticalMode]);
 
   const handleNavigation = (id: string) => {
     if (id !== activeView) {
       if (isVerticalMode && isSidebarOpen) {
-        // If sidebar is open, replace its history state so navigation stays clean
         window.history.replaceState({ view: id }, "");
       } else {
         window.history.pushState({ view: id }, "");
@@ -134,7 +142,6 @@ export default function Dashboard({
       setActiveView(id);
       setIsSidebarOpen(false); 
     } else {
-      // If clicking the current view while sidebar is open, just close it and pop the state
       if (isVerticalMode && isSidebarOpen) {
         setIsSidebarOpen(false);
         window.history.back();
@@ -391,6 +398,59 @@ export default function Dashboard({
     setIsSavingBuilty(false);
   };
 
+  // ==========================================
+  // DELETE BUILTY (ADMIN ONLY) LOGIC
+  // ==========================================
+  const confirmDeleteBuilty = async () => {
+    if (!invoiceToDeleteBuilty) return;
+    setIsDeletingBuilty(true);
+    setDeleteBuiltyStatus({ type: "info", text: "Removing builty details and photo..." });
+
+    try {
+      // 1. Delete image from Storage if it exists
+      if (invoiceToDeleteBuilty.builty_image_url && invoiceToDeleteBuilty.builty_image_url.includes('/builties/')) {
+         try {
+             const urlParts = invoiceToDeleteBuilty.builty_image_url.split('/');
+             const rawFileName = urlParts[urlParts.length - 1];
+             const fileName = decodeURIComponent(rawFileName); // Fixes spaces/special chars in URL
+
+             if (fileName) {
+                const { error: storageErr } = await supabase.storage.from('builties').remove([fileName]);
+                if (storageErr) console.warn("Failed to delete from storage (might already be deleted):", storageErr);
+             }
+         } catch (e) {
+             console.warn("Error parsing image URL for deletion:", e);
+         }
+      }
+
+      // 2. Update Database Record to wipe LR data
+      const { error: dbErr } = await supabase.from('invoices').update({
+          lr_number: null,
+          lr_date: null,
+          builty_image_url: null
+      }).eq('invoice_no', invoiceToDeleteBuilty.invoice_no);
+
+      if (dbErr) throw dbErr;
+
+      setDeleteBuiltyStatus({ type: "success", text: "Builty details and photo permanently deleted!" });
+      
+      setTimeout(() => {
+          setInvoiceToDeleteBuilty(null);
+          setDeleteBuiltyStatus({ type: "", text: "" });
+          fetchAllInvoices(); // Refresh the active list
+          
+          // Update details modal if it happens to be open behind the confirm modal
+          if (selectedInvoice && selectedInvoice.invoice_no === invoiceToDeleteBuilty.invoice_no) {
+              setSelectedInvoice({...selectedInvoice, lr_number: null, lr_date: null, builty_image_url: null});
+          }
+      }, 1500);
+
+    } catch (err: any) {
+       console.error("Delete Error:", err);
+       setDeleteBuiltyStatus({ type: "error", text: "Failed to delete: " + (err.message || "Unknown error") });
+    }
+    setIsDeletingBuilty(false);
+  };
 
   // ==========================================
   // FORM HANDLERS (Users & Settings)
@@ -643,7 +703,6 @@ export default function Dashboard({
   // SIDEBAR CONFIGURATION (ROLE BASED)
   // ==========================================
   let menuOptions: any[] = [];
-  const userRoleUpper = userRole ? userRole.trim().toUpperCase() : "";
 
   if (userRoleUpper === "GATE") {
     menuOptions = [
@@ -703,13 +762,13 @@ export default function Dashboard({
   return (
     <div className="h-screen w-full flex overflow-hidden font-sans bg-slate-50 text-slate-900">
       
-      {/* MOBILE SIDEBAR OVERLAY (CLOSES MENU ON CLICK) */}
+      {/* MOBILE SIDEBAR OVERLAY */}
       {isSidebarOpen && isVerticalMode && (
         <div 
           className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-30 animate-fade-in"
           onClick={() => {
             setIsSidebarOpen(false);
-            window.history.back(); // Pops the history state nicely
+            window.history.back(); 
           }}
         />
       )}
@@ -762,7 +821,6 @@ export default function Dashboard({
         <header className="h-16 bg-white/70 backdrop-blur-md border-b border-slate-200/50 flex justify-between items-center px-4 md:px-8 shadow-sm shrink-0 z-10">
           <div className="flex items-center gap-4">
             
-            {/* UPDATED HAMBURGER BUTTON */}
             <button onClick={() => {
               if (isVerticalMode) {
                 if (isSidebarOpen) {
@@ -1209,6 +1267,15 @@ export default function Dashboard({
                                  <svg viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51a12.8 12.8 0 00-.57-.01c-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z"/></svg>
                                  Share
                                </button>
+                               {userRoleUpper === "ADMIN" && (inv.lr_number || inv.builty_image_url) && (
+                                   <button 
+                                     onClick={(e) => { e.stopPropagation(); setInvoiceToDeleteBuilty(inv); }}
+                                     className="flex-none w-10 flex items-center justify-center p-2 bg-red-50 text-red-600 rounded-lg text-xs font-bold border border-red-100 hover:bg-red-100 transition-colors"
+                                     title="Delete Builty Details"
+                                   >
+                                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                                   </button>
+                               )}
                             </div>
                           </div>
                         ))}
@@ -1288,6 +1355,16 @@ export default function Dashboard({
                                       </button>
                                     ) : (
                                       <div className="w-9 h-9" />
+                                    )}
+
+                                    {userRoleUpper === "ADMIN" && (inv.lr_number || inv.builty_image_url) && (
+                                      <button
+                                        onClick={(e) => { e.stopPropagation(); setInvoiceToDeleteBuilty(inv); }}
+                                        className="text-red-500 hover:text-red-700 p-2 rounded-lg hover:bg-red-50 transition-colors"
+                                        title="Delete Builty Details"
+                                      >
+                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                                      </button>
                                     )}
                                   </div>
                                 </td>
@@ -1420,6 +1497,33 @@ export default function Dashboard({
         {/* MODALS */}
         {/* ========================================================= */}
 
+        {/* 1. DELETE BUILTY CONFIRMATION MODAL (ADMIN ONLY) */}
+        {invoiceToDeleteBuilty && (
+          <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 transition-all duration-300 animate-fade-in">
+            <div className="bg-white w-full max-w-sm rounded-2xl shadow-2xl overflow-hidden flex flex-col">
+              <div className="bg-red-600 p-6 flex flex-col items-center justify-center text-center">
+                <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center mb-3">
+                  <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                </div>
+                <h2 className="text-xl font-bold text-white">Delete Builty?</h2>
+                <p className="text-red-100 text-sm mt-1">Invoice {formatDisplayInvoiceNo(invoiceToDeleteBuilty.invoice_no)}</p>
+              </div>
+              <div className="p-6 bg-slate-50 text-center">
+                <p className="text-slate-600 text-sm mb-4">This will permanently remove the LR Number, LR Date, and delete the attached Builty photo from the server.</p>
+                {deleteBuiltyStatus.text && (
+                   <div className={`p-3 rounded-xl text-xs font-semibold mb-4 border ${deleteBuiltyStatus.type === "error" ? "bg-red-50 text-red-700 border-red-100" : deleteBuiltyStatus.type === "success" ? "bg-emerald-50 text-emerald-700 border-emerald-100" : "bg-blue-50 text-blue-700 border-blue-100 animate-pulse"}`}>
+                      {deleteBuiltyStatus.text}
+                   </div>
+                )}
+              </div>
+              <div className="p-5 flex gap-3 border-t border-slate-100 bg-white">
+                <button onClick={() => setInvoiceToDeleteBuilty(null)} disabled={isDeletingBuilty} className="flex-1 px-4 py-3 bg-slate-100 text-slate-700 font-bold rounded-xl hover:bg-slate-200 transition-colors disabled:opacity-50">Cancel</button>
+                <button onClick={confirmDeleteBuilty} disabled={isDeletingBuilty} className="flex-1 px-4 py-3 bg-red-600 text-white font-bold rounded-xl hover:bg-red-700 shadow-md transition-colors disabled:opacity-50">{isDeletingBuilty ? "Deleting..." : "Yes, Delete"}</button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* 2. BUILTY MANUAL LR EDIT & SAVE MODAL */}
         {showBuiltyEdit && matchedInvoice && (
           <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 transition-all duration-300 animate-fade-in">
@@ -1508,7 +1612,7 @@ export default function Dashboard({
                     )}
                   </div>
                   
-                  {/* MODAL ACTIONS: WhatsApp & View Builty */}
+                  {/* MODAL ACTIONS: WhatsApp, View Builty, Delete Builty */}
                   <div className="flex items-center gap-3 w-full md:w-auto">
                     <button 
                        onClick={(e) => shareOnWhatsApp(selectedInvoice, e)}
@@ -1524,6 +1628,15 @@ export default function Dashboard({
                       >
                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
                          View Builty
+                      </button>
+                    )}
+                    {userRoleUpper === "ADMIN" && (selectedInvoice.lr_number || selectedInvoice.builty_image_url) && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setInvoiceToDeleteBuilty(selectedInvoice); }}
+                        className="flex-none p-2 bg-red-50 text-red-600 rounded-xl font-bold border border-red-100 hover:bg-red-100 transition-colors"
+                        title="Delete Builty Details"
+                      >
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
                       </button>
                     )}
                   </div>
