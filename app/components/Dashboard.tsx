@@ -660,7 +660,7 @@ export default function Dashboard({
 
     if (userRoleUpper === "ADMIN") {
       const invMenu = menuOptions.find(m => m.id === "invoices_parent");
-      if (invMenu && invMenu.children && !invMenu.children.some(c => c.id === 'invoice_register')) {
+      if (invMenu && invMenu.children && !invMenu.children.some((c: any) => c.id === 'invoice_register')) {
         invMenu.children.push({
           name: "Invoice Register",
           id: "invoice_register",
