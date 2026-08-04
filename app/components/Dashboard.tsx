@@ -58,7 +58,7 @@ export default function Dashboard({
   const [editUserStatus, setEditUserStatus] = useState({ type: "", text: "" });
   const [editUserForm, setEditUserForm] = useState({ id: "", username: "", email: "", mobile_number: "", role_id: "", user_status: "active" });
 
-  // Invoice Upload States
+  // Invoice Upload States (PDF & Excel)
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [isScanning, setIsScanning] = useState(false);
@@ -90,6 +90,7 @@ export default function Dashboard({
   const [builtyStatus, setBuiltyStatus] = useState({ type: "", text: "" });
   
   const [matchedInvoice, setMatchedInvoice] = useState<any | null>(null);
+  const [showBuiltyConfirm, setShowBuiltyConfirm] = useState(false);
   const [showBuiltyEdit, setShowBuiltyEdit] = useState(false);
   const [builtyForm, setBuiltyForm] = useState({ lr_number: "", lr_date: "" });
   const [isSavingBuilty, setIsSavingBuilty] = useState(false);
@@ -111,6 +112,7 @@ export default function Dashboard({
       if (isAddUserOpen) setIsAddUserOpen(false); 
       else if (isEditUserOpen) setIsEditUserOpen(false);
       else if (selectedInvoice) setSelectedInvoice(null);
+      else if (showBuiltyConfirm) setShowBuiltyConfirm(false);
       else if (showBuiltyEdit) setShowBuiltyEdit(false);
       else {
         if (e.state && e.state.view) setActiveView(e.state.view);
@@ -119,7 +121,7 @@ export default function Dashboard({
     };
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
-  }, [isAddUserOpen, isEditUserOpen, selectedInvoice, showBuiltyEdit]);
+  }, [isAddUserOpen, isEditUserOpen, selectedInvoice, showBuiltyConfirm, showBuiltyEdit]);
 
   const handleNavigation = (id: string) => {
     if (id !== activeView) {
@@ -615,41 +617,66 @@ export default function Dashboard({
   };
 
   // ==========================================
-  // SIDEBAR CONFIGURATION
+  // SIDEBAR CONFIGURATION (ROLE BASED)
   // ==========================================
-  const menuOptions = [
-    { name: "Orders", id: "orders", icon: "M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" },
-    { 
-      name: "Invoices/Bills", 
-      id: "invoices_parent", 
-      icon: "M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z",
-      children: [
-        { name: "Upload Invoices", id: "upload_invoices", icon: "M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" },
-        { name: "Upload Builty", id: "upload_builty", icon: "M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" }
-      ]
-    },
-    { name: "Production", id: "production", icon: "M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" },
-    { name: "Reports", id: "reports", icon: "M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" }
-  ];
+  let menuOptions: any[] = [];
+  const userRoleUpper = userRole ? userRole.trim().toUpperCase() : "";
 
-  if (userRole && userRole.trim().toUpperCase() === "ADMIN") {
-    const invMenu = menuOptions.find(m => m.id === "invoices_parent");
-    if (invMenu && invMenu.children && !invMenu.children.some(c => c.id === 'invoice_register')) {
-      invMenu.children.push({
-        name: "Invoice Register",
-        id: "invoice_register",
-        icon: "M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"
+  // RBAC: If User is GATE, show ONLY the Gate Entry functionality.
+  if (userRoleUpper === "GATE") {
+    menuOptions = [
+      {
+        name: "Gate Entry",
+        id: "gate_entry_parent",
+        icon: "M8 14v3m4-3v3m4-3v3M3 21h18M3 10h18M3 7l9-4 9 4M4 10h16v11H4V10z",
+        children: [
+          { name: "Upload Builty", id: "upload_builty", icon: "M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" }
+        ]
+      }
+    ];
+  } else {
+    // Normal Menu for ADMIN and OPERATOR
+    menuOptions = [
+      { name: "Orders", id: "orders", icon: "M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" },
+      { 
+        name: "Invoices/Bills", 
+        id: "invoices_parent", 
+        icon: "M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z",
+        children: [
+          { name: "Upload Invoices", id: "upload_invoices", icon: "M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" }
+        ]
+      },
+      { name: "Production", id: "production", icon: "M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" },
+      {
+        name: "Gate Entry",
+        id: "gate_entry_parent",
+        icon: "M8 14v3m4-3v3m4-3v3M3 21h18M3 10h18M3 7l9-4 9 4M4 10h16v11H4V10z",
+        children: [
+          { name: "Upload Builty", id: "upload_builty", icon: "M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" }
+        ]
+      },
+      { name: "Reports", id: "reports", icon: "M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" }
+    ];
+
+    if (userRoleUpper === "ADMIN") {
+      const invMenu = menuOptions.find(m => m.id === "invoices_parent");
+      if (invMenu && invMenu.children && !invMenu.children.some(c => c.id === 'invoice_register')) {
+        invMenu.children.push({
+          name: "Invoice Register",
+          id: "invoice_register",
+          icon: "M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"
+        });
+      }
+
+      menuOptions.push({ name: "Users", id: "users", icon: "M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" });
+      menuOptions.push({
+        name: "Settings", id: "settings_parent", icon: "M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z",
+        children: [
+          { name: "Company Info", id: "settings_company", icon: "M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" },
+          { name: "App Settings", id: "settings_app", icon: "M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" }
+        ]
       });
     }
-
-    menuOptions.push({ name: "Users", id: "users", icon: "M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" });
-    menuOptions.push({
-      name: "Settings", id: "settings_parent", icon: "M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z",
-      children: [
-        { name: "Company Info", id: "settings_company", icon: "M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" },
-        { name: "App Settings", id: "settings_app", icon: "M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" }
-      ]
-    });
   }
 
   return (
@@ -712,7 +739,7 @@ export default function Dashboard({
           <div className="relative">
             <div onClick={() => setIsProfileOpen(!isProfileOpen)} className="flex items-center gap-3 cursor-pointer p-1 pr-3 rounded-full hover:bg-white/50 transition-colors border border-transparent hover:border-slate-200">
               <div className="w-9 h-9 bg-blue-100 text-blue-700 rounded-full flex items-center justify-center font-bold text-sm border border-blue-200">{username.charAt(0).toUpperCase()}</div>
-              <span className="hidden md:block font-semibold text-slate-700">Hi, {username} ({userRole})</span>
+              <span className="hidden md:block font-semibold text-slate-700">Hi, {username} ({userRoleUpper || 'OPERATOR'})</span>
               <svg className="w-4 h-4 text-slate-400 hidden md:block" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
             </div>
             {isProfileOpen && (
