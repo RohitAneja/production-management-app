@@ -295,13 +295,18 @@ export default function Dashboard({
       setBuiltyStatus({ type: "info", text: "Analyzing Builty image natively on your device..." });
 
       try {
-        // Dynamically import Tesseract to ensure it only runs in the browser
-        const Tesseract = (await import('tesseract.js')).default;
+        // Use a more robust dynamic import that Webpack/Next.js prefers for client components
+        const tesseractModule = await import('tesseract.js');
+        const recognize = tesseractModule.recognize || tesseractModule.default?.recognize;
+
+        if (!recognize) {
+             throw new Error("OCR module failed to load properly.");
+        }
         
         const pendingNos = pendingInvoices.map(inv => formatDisplayInvoiceNo(inv.invoice_no));
 
         // RUN AI DIRECTLY IN THE BROWSER (Lightning Fast, No Server Timeouts!)
-        const { data: { text } } = await Tesseract.recognize(file, 'eng', {
+        const { data: { text } } = await recognize(file, 'eng', {
             logger: m => console.log(m)
         });
         
@@ -347,8 +352,8 @@ export default function Dashboard({
            setBuiltyStatus({ type: "error", text: "Could not find any pending Invoice Number in this photo. Please retake the photo clearly." });
         }
       } catch (err: any) {
-        console.error(err);
-        setBuiltyStatus({ type: "error", text: "Image processing failed. Please try a different photo." });
+        console.error("OCR Catch Error:", err);
+        setBuiltyStatus({ type: "error", text: "Image processing failed. Please ensure your browser supports this feature or try again." });
       }
 
       setIsParsingBuilty(false);
