@@ -95,7 +95,6 @@ export default function Dashboard({
   const [builtyStatus, setBuiltyStatus] = useState({ type: "", text: "" });
   
   const [matchedInvoice, setMatchedInvoice] = useState<any | null>(null);
-  const [showBuiltyConfirm, setShowBuiltyConfirm] = useState(false);
   const [showBuiltyEdit, setShowBuiltyEdit] = useState(false);
   const [builtyForm, setBuiltyForm] = useState({ lr_number: "", lr_date: "" });
   const [isSavingBuilty, setIsSavingBuilty] = useState(false);
@@ -126,8 +125,13 @@ export default function Dashboard({
       checkOrientation(); // Initial check
       window.addEventListener('resize', checkOrientation); // Live updates when tablet rotates
       
-      if (!window.history.state || !window.history.state.view) {
-        window.history.replaceState({ view: "dashboard" }, "");
+      // Try-Catch protects against iOS Safari security blocks
+      try {
+        if (!window.history.state || !window.history.state.view) {
+          window.history.replaceState({ view: "dashboard" }, "");
+        }
+      } catch (e) {
+        console.warn("History API block:", e);
       }
 
       return () => window.removeEventListener('resize', checkOrientation);
@@ -137,7 +141,7 @@ export default function Dashboard({
   useEffect(() => {
     const handlePopState = (e: PopStateEvent) => {
       if (isSidebarOpen && isVerticalMode) setIsSidebarOpen(false);
-      else if (rawImageSrc) setRawImageSrc(null); // Close crop modal on back
+      else if (rawImageSrc) setRawImageSrc(null); 
       else if (isAddUserOpen) setIsAddUserOpen(false); 
       else if (isEditUserOpen) setIsEditUserOpen(false);
       else if (selectedInvoice) setSelectedInvoice(null);
@@ -154,11 +158,13 @@ export default function Dashboard({
 
   const handleNavigation = (id: string) => {
     if (id !== activeView) {
-      if (isVerticalMode && isSidebarOpen) {
-        window.history.replaceState({ view: id }, "");
-      } else {
-        window.history.pushState({ view: id }, "");
-      }
+      try {
+        if (isVerticalMode && isSidebarOpen) {
+          window.history.replaceState({ view: id }, "");
+        } else {
+          window.history.pushState({ view: id }, "");
+        }
+      } catch (e) {}
       setActiveView(id);
       setIsSidebarOpen(false); 
     } else {
@@ -173,11 +179,13 @@ export default function Dashboard({
 
   const goHome = () => {
     if (activeView !== "dashboard") {
-      if (isVerticalMode && isSidebarOpen) {
-        window.history.replaceState({ view: "dashboard" }, "");
-      } else {
-        window.history.pushState({ view: "dashboard" }, "");
-      }
+      try {
+        if (isVerticalMode && isSidebarOpen) {
+          window.history.replaceState({ view: "dashboard" }, "");
+        } else {
+          window.history.pushState({ view: "dashboard" }, "");
+        }
+      } catch(e) {}
       setActiveView("dashboard");
       setIsSidebarOpen(false);
     } else {
@@ -190,11 +198,11 @@ export default function Dashboard({
     }
   };
 
-  const openAddUserModal = () => { window.history.pushState({ modal: 'add' }, ""); setIsAddUserOpen(true); };
+  const openAddUserModal = () => { try { window.history.pushState({ modal: 'add' }, ""); } catch(e){} setIsAddUserOpen(true); };
   const openEditUserModal = (user: any) => {
     setEditUserForm({ id: user.id, username: user.username || "", email: user.email || "", mobile_number: user.mobile_number || "", role_id: user.role_id || "", user_status: user.user_status || "active" });
     setEditUserStatus({ type: "", text: "" });
-    window.history.pushState({ modal: 'edit' }, "");
+    try { window.history.pushState({ modal: 'edit' }, ""); } catch(e){}
     setIsEditUserOpen(true);
   };
 
@@ -329,7 +337,7 @@ export default function Dashboard({
   }, {} as Record<string, number>);
 
   // ==========================================
-  // IMAGE COMPRESSION HELPER (PREVENTS RAM CRASH)
+  // IMAGE COMPRESSION HELPER
   // ==========================================
   const compressImage = (file: File): Promise<string> => {
     return new Promise((resolve, reject) => {
@@ -338,7 +346,7 @@ export default function Dashboard({
       
       img.onload = () => {
         const canvas = document.createElement('canvas');
-        const MAX_WIDTH = 1200; // Shrinks massive 4K phone photos safely
+        const MAX_WIDTH = 1200; 
         const scaleSize = MAX_WIDTH / img.width;
         
         canvas.width = Math.min(img.width, MAX_WIDTH);
@@ -374,7 +382,7 @@ export default function Dashboard({
         const compressedBase64 = await compressImage(file);
         setRawImageSrc(compressedBase64);
         setBuiltyStatus({ type: "", text: "" });
-        window.history.pushState({ modal: 'crop' }, ""); // Back gesture support for crop modal
+        try { window.history.pushState({ modal: 'crop' }, ""); } catch(e){}
       } catch (err) {
         setBuiltyStatus({ type: "error", text: "Failed to load image. Try another." });
       }
@@ -387,7 +395,7 @@ export default function Dashboard({
   const applyCrop = () => {
     const image = imgRef.current;
     if (!image || !crop.width || !crop.height) {
-        setRawImageSrc(null); // Just close if they didn't crop
+        setRawImageSrc(null); 
         window.history.back();
         return;
     }
@@ -396,7 +404,7 @@ export default function Dashboard({
     const scaleX = image.naturalWidth / image.width;
     const scaleY = image.naturalHeight / image.height;
 
-    // FIX: Convert percentage to actual display pixels first
+    // Convert percentage to actual display pixels first
     const pixelCrop = crop.unit === '%' ? {
         x: (crop.x / 100) * image.width,
         y: (crop.y / 100) * image.height,
@@ -404,7 +412,6 @@ export default function Dashboard({
         height: (crop.height / 100) * image.height,
     } : crop;
 
-    // Use the newly converted pixel values
     canvas.width = pixelCrop.width * scaleX;
     canvas.height = pixelCrop.height * scaleY;
     
@@ -430,7 +437,7 @@ export default function Dashboard({
         setBuiltyPreviewUrl(URL.createObjectURL(blob));
         setBuiltyStatus({ type: "success", text: "Image Cropped & Ready! Select an invoice below to attach." });
         setRawImageSrc(null);
-        window.history.back(); // Pop the crop modal state
+        window.history.back(); 
       }, 'image/jpeg', 0.9);
     }
   };
@@ -478,21 +485,6 @@ export default function Dashboard({
 
        if (dbErr) throw dbErr;
 
-       try {
-           if (typeof window.URL.createObjectURL === 'function' && builtyFile instanceof Blob) {
-               const localUrl = window.URL.createObjectURL(builtyFile);
-               const a = document.createElement("a");
-               a.href = localUrl;
-               a.download = fileName; 
-               document.body.appendChild(a);
-               a.click();
-               document.body.removeChild(a);
-               setTimeout(() => { window.URL.revokeObjectURL(localUrl); }, 1000);
-           }
-       } catch (downloadErr) {
-           console.warn("Local download skipped:", downloadErr);
-       }
-
        setBuiltyStatus({ type: "success", text: "Builty securely saved to cloud and linked!" });
        
        setTimeout(() => {
@@ -509,9 +501,6 @@ export default function Dashboard({
     setIsSavingBuilty(false);
   };
 
-  // ==========================================
-  // DELETE BUILTY (ADMIN ONLY) LOGIC
-  // ==========================================
   const confirmDeleteBuilty = async () => {
     if (!invoiceToDeleteBuilty) return;
     setIsDeletingBuilty(true);
@@ -560,9 +549,6 @@ export default function Dashboard({
     setIsDeletingBuilty(false);
   };
 
-  // ==========================================
-  // UPLOAD INVOICES (PDF SCANNERS)
-  // ==========================================
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
       setSelectedFiles(Array.from(e.target.files));
@@ -594,7 +580,7 @@ export default function Dashboard({
           return;
         }
       } catch (err: any) {
-        setUploadStatus({ type: "error", text: `Server Crash: Could not reach API. Check Vercel Logs.` });
+        setUploadStatus({ type: "error", text: `Server Crash: Could not reach API.` });
         setIsScanning(false);
         return;
       }
@@ -757,9 +743,6 @@ export default function Dashboard({
     }
   };
 
-  // ==========================================
-  // SIDEBAR CONFIGURATION (ROLE BASED)
-  // ==========================================
   let menuOptions: any[] = [];
 
   if (userRoleUpper === "GATE") {
@@ -865,7 +848,7 @@ export default function Dashboard({
   };
 
   return (
-    <div className="h-screen w-full flex overflow-hidden font-sans bg-slate-50 text-slate-900">
+    <div className="h-[100dvh] w-full flex overflow-hidden font-sans bg-slate-50 text-slate-900">
       
       {/* MOBILE SIDEBAR OVERLAY */}
       {isSidebarOpen && isVerticalMode && (
@@ -882,7 +865,7 @@ export default function Dashboard({
       <aside 
         onMouseEnter={() => !isVerticalMode && setIsSidebarOpen(true)}
         onMouseLeave={() => !isVerticalMode && setIsSidebarOpen(false)}
-        className={`${isSidebarOpen ? 'w-64 border-r border-slate-200 shadow-2xl md:shadow-[4px_0_24px_rgba(0,0,0,0.02)]' : 'w-0 border-r-0'} bg-white transition-all duration-300 flex flex-col z-40 shrink-0 overflow-hidden absolute md:relative h-full`}
+        className={`${isSidebarOpen ? 'w-64 border-r border-slate-200 shadow-2xl lg:shadow-[4px_0_24px_rgba(0,0,0,0.02)]' : 'w-0 border-r-0'} bg-white transition-all duration-300 flex flex-col z-40 shrink-0 overflow-hidden absolute lg:relative h-full`}
       >
         <div className="w-64 flex flex-col h-full shrink-0">
           <div onClick={goHome} className="h-16 flex items-center justify-center border-b border-slate-100 p-2 cursor-pointer hover:bg-slate-50 transition-colors shrink-0">
@@ -922,8 +905,8 @@ export default function Dashboard({
       </aside>
 
       {/* MAIN CONTENT AREA */}
-      <main className="flex-1 flex flex-col relative bg-[url('/bg-mobile.jpg')] md:bg-[url('/bg-desktop.jpg')] bg-cover bg-center bg-no-repeat bg-blend-overlay bg-white/90 overflow-y-auto">
-        <header className="h-16 bg-white/70 backdrop-blur-md border-b border-slate-200/50 flex justify-between items-center px-4 md:px-8 shadow-sm shrink-0 z-10">
+      <main className="flex-1 flex flex-col relative bg-[url('/bg-mobile.jpg')] lg:bg-[url('/bg-desktop.jpg')] bg-cover bg-center bg-no-repeat bg-blend-overlay bg-white/90 overflow-y-auto">
+        <header className="h-16 bg-white/70 backdrop-blur-md border-b border-slate-200/50 flex justify-between items-center px-4 lg:px-8 shadow-sm shrink-0 z-10">
           <div className="flex items-center gap-4">
             <button onClick={() => {
               if (isVerticalMode) {
@@ -931,7 +914,7 @@ export default function Dashboard({
                   setIsSidebarOpen(false);
                   window.history.back();
                 } else {
-                  window.history.pushState({ sidebar: true }, "");
+                  try { window.history.pushState({ sidebar: true }, ""); } catch(e){}
                   setIsSidebarOpen(true);
                 }
               } else {
@@ -940,19 +923,19 @@ export default function Dashboard({
             }} className="p-2 text-slate-500 hover:text-slate-900 hover:bg-white/50 rounded-lg transition-colors">
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
             </button>
-            <h1 className="text-slate-400 font-bold hidden md:block">
-              {isVerticalMode ? (isSidebarOpen ? "Select" : "Select") : (isSidebarOpen ? "Select an option from the menu" : "Select an option from the menu")}
+            <h1 className="text-slate-400 font-bold hidden lg:block">
+              {isSidebarOpen ? "Select an option from the menu" : "Select an option from the menu"}
             </h1>
           </div>
           <div className="relative">
             <div onClick={() => setIsProfileOpen(!isProfileOpen)} className="flex items-center gap-3 cursor-pointer p-1 pr-3 rounded-full hover:bg-white/50 transition-colors border border-transparent hover:border-slate-200">
               <div className="w-9 h-9 bg-blue-100 text-blue-700 rounded-full flex items-center justify-center font-bold text-sm border border-blue-200">{username.charAt(0).toUpperCase()}</div>
-              <span className="hidden md:block font-semibold text-slate-700">Hi, {username} ({userRoleUpper || 'OPERATOR'})</span>
-              <svg className="w-4 h-4 text-slate-400 hidden md:block" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
+              <span className="hidden lg:block font-semibold text-slate-700">Hi, {username} ({userRoleUpper || 'OPERATOR'})</span>
+              <svg className="w-4 h-4 text-slate-400 hidden lg:block" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
             </div>
             {isProfileOpen && (
               <div className="absolute right-0 mt-2 w-48 bg-white border border-slate-100 rounded-xl shadow-lg overflow-hidden z-50">
-                <div className="px-4 py-3 border-b border-slate-100 bg-slate-50 md:hidden">
+                <div className="px-4 py-3 border-b border-slate-100 bg-slate-50 lg:hidden">
                   <p className="text-xs text-slate-500 font-medium uppercase tracking-wider">Signed in as</p>
                   <p className="text-sm font-bold text-slate-900 truncate">{username}</p>
                 </div>
@@ -966,23 +949,23 @@ export default function Dashboard({
         </header>
 
         {/* FULL SCREEN DYNAMIC VIEWS */}
-        <div className="flex-1 flex flex-col p-0 md:p-6 overflow-hidden">
+        <div className="flex-1 flex flex-col p-0 lg:p-6 overflow-hidden">
 
           {/* ========================================================= */}
           {/* UPLOAD INVOICES VIEW */}
           {/* ========================================================= */}
           {activeView === "upload_invoices" && (
-            <div className="flex-1 flex flex-col bg-white md:bg-white/95 md:backdrop-blur-xl rounded-none md:rounded-2xl shadow-none md:shadow-xl border-none md:border md:border-white overflow-hidden animate-fade-in relative">
+            <div className="flex-1 flex flex-col bg-white lg:bg-white/95 lg:backdrop-blur-xl rounded-none lg:rounded-2xl shadow-none lg:shadow-xl border-none lg:border lg:border-white overflow-hidden animate-fade-in relative">
               <div className="flex-1 overflow-y-auto pb-12" onScroll={handleMainScroll}>
-                <div className="p-5 md:p-6 border-b border-slate-100 bg-white/70 backdrop-blur-md sticky top-0 z-20 flex justify-between items-center transition-all">
+                <div className="p-5 lg:p-6 border-b border-slate-100 bg-white/70 backdrop-blur-md sticky top-0 z-20 flex justify-between items-center transition-all">
                   <div>
-                    <h2 className="text-xl md:text-2xl font-bold text-slate-900">Upload Invoices</h2>
-                    <p className="text-sm text-slate-500 hidden md:block">Add invoices via AI PDF Scan or Bulk Excel Upload.</p>
+                    <h2 className="text-xl lg:text-2xl font-bold text-slate-900">Upload Invoices</h2>
+                    <p className="text-sm text-slate-500 hidden lg:block">Add invoices via AI PDF Scan or Bulk Excel Upload.</p>
                   </div>
                   {scannedInvoices.length > 0 && (
                     <button 
                       onClick={() => setIsUploadPanelOpen(!isUploadPanelOpen)}
-                      className="text-xs md:text-sm font-bold text-blue-600 bg-blue-50 px-3 md:px-4 py-2 rounded-lg border border-blue-100 hover:bg-blue-100 transition-colors"
+                      className="text-xs lg:text-sm font-bold text-blue-600 bg-blue-50 px-3 lg:px-4 py-2 rounded-lg border border-blue-100 hover:bg-blue-100 transition-colors"
                     >
                       {isUploadPanelOpen ? "Hide Scanner" : "Show Scanner"}
                     </button>
@@ -990,7 +973,7 @@ export default function Dashboard({
                 </div>
                 <div className={`transition-all duration-500 origin-top overflow-hidden ${isUploadPanelOpen ? 'max-h-[1200px] opacity-100 scale-y-100' : 'max-h-0 opacity-0 scale-y-0'}`}>
                   <div className="p-6 grid grid-cols-1 lg:grid-cols-2 gap-6 border-b border-slate-100">
-                    <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5 md:p-6 flex flex-col">
+                    <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5 lg:p-6 flex flex-col">
                       <h3 className="text-lg font-bold text-slate-800 mb-1">1. AI PDF Scanner</h3>
                       <p className="text-xs text-slate-500 mb-5">Select single or multiple PDF invoices. The system matches your company name and extracts data automatically.</p>
                       <input type="file" accept="application/pdf" multiple ref={fileInputRef} onChange={handleFileChange} className="block w-full text-sm text-slate-500 file:mr-4 file:py-2.5 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-bold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 transition-colors mb-4" />
@@ -1005,7 +988,7 @@ export default function Dashboard({
                         </div>
                       )}
                     </div>
-                    <div className="bg-emerald-50/50 border border-emerald-100 rounded-2xl p-5 md:p-6 flex flex-col">
+                    <div className="bg-emerald-50/50 border border-emerald-100 rounded-2xl p-5 lg:p-6 flex flex-col">
                       <h3 className="text-lg font-bold text-emerald-800 mb-1">2. Bulk Excel Sync</h3>
                       <p className="text-xs text-emerald-600/80 mb-5">Upload an Excel/CSV file containing Columns: <span className="font-bold text-emerald-700">Invoice No, Date, Main Account, Sub Account, Num of Cases, Packing Type, Amount, Transport, LR Number, LR Date</span>.</p>
                       <input type="file" accept=".csv, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel" ref={excelInputRef} onChange={handleExcelFileChange} className="block w-full text-sm text-emerald-700 file:mr-4 file:py-2.5 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-bold file:bg-emerald-100 file:text-emerald-800 hover:file:bg-emerald-200 transition-colors mb-4" />
@@ -1024,18 +1007,20 @@ export default function Dashboard({
                 </div>
 
                 {scannedInvoices.length > 0 && (
-                  <div id="preview-section" className="p-4 md:p-6 bg-slate-50/50 min-h-[600px]">
-                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
+                  <div id="preview-section" className="p-4 lg:p-6 bg-slate-50/50 min-h-[600px]">
+                    <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-6 gap-4">
                       <div>
                         <h3 className="text-xl font-bold text-slate-800">Scanned Results Preview</h3>
                         <p className="text-sm text-slate-500">Verify the extracted data below before saving.</p>
                       </div>
-                      <button onClick={saveInvoicesToDatabase} disabled={isScanning} className="w-full md:w-auto bg-emerald-600 text-white px-8 py-3 rounded-xl text-sm font-bold shadow-md hover:bg-emerald-700 transition-colors disabled:opacity-50">
+                      <button onClick={saveInvoicesToDatabase} disabled={isScanning} className="w-full lg:w-auto bg-emerald-600 text-white px-8 py-3 rounded-xl text-sm font-bold shadow-md hover:bg-emerald-700 transition-colors disabled:opacity-50">
                         {isScanning ? "Saving..." : "Confirm & Save to Database"}
                       </button>
                     </div>
 
-                    {isVerticalMode ? (
+                    {!isMounted ? (
+                      <div className="flex justify-center items-center p-12"><div className="w-8 h-8 border-4 border-emerald-200 border-t-emerald-600 rounded-full animate-spin"></div></div>
+                    ) : isVerticalMode ? (
                       <div className="flex flex-col gap-4">
                         {scannedInvoices.map((inv, idx) => (
                           <div key={idx} className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
@@ -1093,9 +1078,9 @@ export default function Dashboard({
                                 <td className="p-4 text-sm text-slate-700">
                                   {inv.sub_account ? (
                                     <>
-                                      <span className="font-bold text-slate-900 block md:inline">{inv.sub_account}</span>
-                                      <span className="text-slate-400 font-normal mx-1 hidden md:inline">c/o</span>
-                                      <span className="block md:inline text-xs md:text-sm font-semibold">{inv.main_account}</span>
+                                      <span className="font-bold text-slate-900 block lg:inline">{inv.sub_account}</span>
+                                      <span className="text-slate-400 font-normal mx-1 hidden lg:inline">c/o</span>
+                                      <span className="block lg:inline text-xs lg:text-sm font-semibold">{inv.main_account}</span>
                                     </>
                                   ) : (
                                     <span className="font-semibold text-slate-900">{inv.main_account}</span>
@@ -1128,17 +1113,17 @@ export default function Dashboard({
           {/* UPLOAD BUILTY VIEW (MANUAL MATCHING) */}
           {/* ========================================================= */}
           {activeView === "upload_builty" && (
-            <div className="flex-1 flex flex-col bg-white md:bg-white/95 md:backdrop-blur-xl rounded-none md:rounded-2xl shadow-none md:shadow-xl border-none md:border md:border-white overflow-hidden animate-fade-in relative">
+            <div className="flex-1 flex flex-col bg-white lg:bg-white/95 lg:backdrop-blur-xl rounded-none lg:rounded-2xl shadow-none lg:shadow-xl border-none lg:border lg:border-white overflow-hidden animate-fade-in relative">
               <div className="flex-1 flex flex-col h-full relative">
                 
-                <div className="p-4 md:p-6 border-b border-slate-100 bg-white/70 backdrop-blur-md sticky top-0 z-20 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 shrink-0">
+                <div className="p-4 lg:p-6 border-b border-slate-100 bg-white/70 backdrop-blur-md sticky top-0 z-20 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 shrink-0">
                   <div>
-                    <h2 className="text-xl md:text-2xl font-bold text-slate-900">Upload Builty</h2>
-                    <p className="text-sm text-slate-500 hidden md:block">Attach photos to pending invoices manually.</p>
+                    <h2 className="text-xl lg:text-2xl font-bold text-slate-900">Upload Builty</h2>
+                    <p className="text-sm text-slate-500 hidden lg:block">Attach photos to pending invoices manually.</p>
                   </div>
                   
-                  <div className="flex flex-col md:flex-row items-stretch md:items-center gap-3 w-full md:w-auto">
-                    <div className="relative flex-1 md:w-64">
+                  <div className="flex flex-col lg:flex-row items-stretch lg:items-center gap-3 w-full lg:w-auto">
+                    <div className="relative flex-1 lg:w-64">
                       <svg className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
                       <input 
                         type="text" 
@@ -1163,11 +1148,11 @@ export default function Dashboard({
                            <>
                               <input type="file" accept="image/*" capture="environment" className="hidden" ref={cameraInputRef} onChange={handleBuiltyUploadChange} />
                               <input type="file" accept="image/*" className="hidden" ref={galleryInputRef} onChange={handleBuiltyUploadChange} />
-                              <button onClick={() => cameraInputRef.current?.click()} className="flex-1 md:flex-none justify-center bg-blue-600 text-white px-3 md:px-4 h-11 rounded-xl text-sm font-bold shadow-md hover:bg-blue-700 transition-colors flex items-center gap-2">
+                              <button onClick={() => cameraInputRef.current?.click()} className="flex-1 lg:flex-none justify-center bg-blue-600 text-white px-3 lg:px-4 h-11 rounded-xl text-sm font-bold shadow-md hover:bg-blue-700 transition-colors flex items-center gap-2">
                                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"></path><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
                                 <span>Camera</span>
                               </button>
-                              <button onClick={() => galleryInputRef.current?.click()} className="flex-1 md:flex-none justify-center bg-slate-100 text-slate-700 border border-slate-200 px-3 md:px-4 h-11 rounded-xl text-sm font-bold shadow-sm hover:bg-slate-200 transition-colors flex items-center gap-2">
+                              <button onClick={() => galleryInputRef.current?.click()} className="flex-1 lg:flex-none justify-center bg-slate-100 text-slate-700 border border-slate-200 px-3 lg:px-4 h-11 rounded-xl text-sm font-bold shadow-sm hover:bg-slate-200 transition-colors flex items-center gap-2">
                                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
                                 <span>Gallery</span>
                               </button>
@@ -1178,15 +1163,15 @@ export default function Dashboard({
                 </div>
                 
                 {builtyStatus.text && (
-                  <div className="px-4 md:px-6 pt-4">
+                  <div className="px-4 lg:px-6 pt-4">
                     <div className={`p-4 rounded-xl text-sm font-semibold border ${builtyStatus.type === "error" ? "bg-red-50 text-red-700 border-red-100" : builtyStatus.type === "success" ? "bg-emerald-50 text-emerald-700 border-emerald-100" : "bg-blue-50 text-blue-700 border-blue-100 animate-pulse"}`}>
                       {builtyStatus.text}
                     </div>
                   </div>
                 )}
 
-                <div className="flex-1 overflow-y-auto p-0 md:p-6 pt-4 md:pt-4">
-                  {isLoadingPending ? (
+                <div className="flex-1 overflow-y-auto p-0 lg:p-6 pt-4 lg:pt-4">
+                  {isLoadingPending || !isMounted ? (
                     <div className="flex justify-center items-center h-full min-h-[400px]">
                       <div className="w-10 h-10 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin"></div>
                     </div>
@@ -1258,9 +1243,9 @@ export default function Dashboard({
                                   <td className="p-4 text-sm text-slate-700">
                                     {inv.sub_account ? (
                                       <>
-                                        <span className="font-bold text-slate-900 block md:inline">{inv.sub_account}</span>
-                                        <span className="text-slate-400 font-normal mx-1 hidden md:inline">c/o</span>
-                                        <span className="block md:inline text-xs md:text-sm font-semibold">{inv.main_account}</span>
+                                        <span className="font-bold text-slate-900 block lg:inline">{inv.sub_account}</span>
+                                        <span className="text-slate-400 font-normal mx-1 hidden lg:inline">c/o</span>
+                                        <span className="block lg:inline text-xs lg:text-sm font-semibold">{inv.main_account}</span>
                                       </>
                                     ) : (
                                       <span className="font-semibold text-slate-900">{inv.main_account}</span>
@@ -1298,15 +1283,15 @@ export default function Dashboard({
           {/* INVOICE REGISTER VIEW */}
           {/* ========================================================= */}
           {activeView === "invoice_register" && (
-            <div className="flex-1 flex flex-col bg-white md:bg-white/95 md:backdrop-blur-xl rounded-none md:rounded-2xl shadow-none md:shadow-xl border-none md:border md:border-white overflow-hidden animate-fade-in relative">
+            <div className="flex-1 flex flex-col bg-white lg:bg-white/95 lg:backdrop-blur-xl rounded-none lg:rounded-2xl shadow-none lg:shadow-xl border-none lg:border lg:border-white overflow-hidden animate-fade-in relative">
               <div className="flex-1 flex flex-col h-full relative">
                 
-                <div className="p-4 md:p-6 border-b border-slate-100 bg-white/70 backdrop-blur-md sticky top-0 z-20 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 shrink-0">
+                <div className="p-4 lg:p-6 border-b border-slate-100 bg-white/70 backdrop-blur-md sticky top-0 z-20 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 shrink-0">
                   <div>
-                    <h2 className="text-xl md:text-2xl font-bold text-slate-900">Invoice Register</h2>
-                    <p className="text-sm text-slate-500 hidden md:block">Comprehensive view of all processed invoices.</p>
+                    <h2 className="text-xl lg:text-2xl font-bold text-slate-900">Invoice Register</h2>
+                    <p className="text-sm text-slate-500 hidden lg:block">Comprehensive view of all processed invoices.</p>
                   </div>
-                  <div className="relative w-full md:w-80">
+                  <div className="relative w-full lg:w-80">
                     <svg className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
                     <input 
                       type="text" 
@@ -1319,7 +1304,7 @@ export default function Dashboard({
                 </div>
                 
                 <div className="flex-1 overflow-y-auto">
-                  {isLoadingInvoices ? (
+                  {isLoadingInvoices || !isMounted ? (
                     <div className="flex justify-center items-center h-full min-h-[400px]">
                       <div className="w-10 h-10 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin"></div>
                     </div>
@@ -1416,9 +1401,9 @@ export default function Dashboard({
                                   <td className="p-4 text-sm text-slate-700">
                                     {inv.sub_account ? (
                                       <>
-                                        <span className="font-bold text-slate-900 block md:inline">{inv.sub_account}</span>
-                                        <span className="text-slate-400 font-normal mx-1 hidden md:inline">c/o</span>
-                                        <span className="block md:inline text-xs md:text-sm font-semibold">{inv.main_account}</span>
+                                        <span className="font-bold text-slate-900 block lg:inline">{inv.sub_account}</span>
+                                        <span className="text-slate-400 font-normal mx-1 hidden lg:inline">c/o</span>
+                                        <span className="block lg:inline text-xs lg:text-sm font-semibold">{inv.main_account}</span>
                                       </>
                                     ) : (
                                       <span className="font-semibold text-slate-900">{inv.main_account}</span>
@@ -1484,9 +1469,9 @@ export default function Dashboard({
                 </div>
 
                 {/* Sticky Summary Footer */}
-                <div className="bg-slate-800 text-white p-4 md:p-5 sticky bottom-0 z-20 flex flex-col md:flex-row justify-between items-center shrink-0 border-t border-slate-700">
-                  <div className="flex flex-wrap items-center gap-3 md:gap-6 text-sm font-medium mb-3 md:mb-0">
-                    <span className="text-slate-400 uppercase tracking-widest text-xs font-bold hidden md:inline">Totals Summary</span>
+                <div className="bg-slate-800 text-white p-4 lg:p-5 sticky bottom-0 z-20 flex flex-col lg:flex-row justify-between items-center shrink-0 border-t border-slate-700">
+                  <div className="flex flex-wrap items-center gap-3 lg:gap-6 text-sm font-medium mb-3 lg:mb-0">
+                    <span className="text-slate-400 uppercase tracking-widest text-xs font-bold hidden lg:inline">Totals Summary</span>
                     {Object.entries(casesBreakdown).map(([type, count]: [string, any]) => (
                       <span key={type} className="bg-slate-700/50 border border-slate-600 px-3 py-1.5 rounded-lg flex items-center gap-2 shadow-sm">
                         <span className="font-bold text-white text-base">{String(count)}</span>
@@ -1495,9 +1480,9 @@ export default function Dashboard({
                     ))}
                     {Object.keys(casesBreakdown).length === 0 && <span className="text-slate-500 italic">No packing data</span>}
                   </div>
-                  <div className="flex items-center gap-4 bg-emerald-500/10 border border-emerald-500/20 px-5 py-2.5 rounded-xl w-full md:w-auto justify-between md:justify-end">
+                  <div className="flex items-center gap-4 bg-emerald-500/10 border border-emerald-500/20 px-5 py-2.5 rounded-xl w-full lg:w-auto justify-between lg:justify-end">
                     <span className="text-emerald-400/80 text-xs uppercase tracking-wider font-bold">Grand Total</span>
-                    <span className="text-xl md:text-2xl font-black text-emerald-400 tracking-tight">₹{formatIndianAmount(totalRegisterAmount)}</span>
+                    <span className="text-xl lg:text-2xl font-black text-emerald-400 tracking-tight">₹{formatIndianAmount(totalRegisterAmount)}</span>
                   </div>
                 </div>
 
@@ -1507,27 +1492,27 @@ export default function Dashboard({
 
           {/* USERS TABLE VIEW */}
           {activeView === "users" && (
-            <div className="flex-1 flex flex-col bg-white md:bg-white/95 md:backdrop-blur-xl rounded-none md:rounded-2xl shadow-none md:shadow-xl border-none md:border md:border-white overflow-hidden animate-fade-in relative">
-              <div className="p-0 md:p-6 flex-1 flex flex-col">
-                <div className="p-5 md:p-0 border-b md:border-none border-slate-100 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white/50 md:bg-transparent mb-0 md:mb-6">
+            <div className="flex-1 flex flex-col bg-white lg:bg-white/95 lg:backdrop-blur-xl rounded-none lg:rounded-2xl shadow-none lg:shadow-xl border-none lg:border lg:border-white overflow-hidden animate-fade-in relative">
+              <div className="p-0 lg:p-6 flex-1 flex flex-col">
+                <div className="p-5 lg:p-0 border-b lg:border-none border-slate-100 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 bg-white/50 lg:bg-transparent mb-0 lg:mb-6">
                   <div>
-                    <h2 className="text-xl md:text-2xl font-bold text-slate-900">User Management</h2>
+                    <h2 className="text-xl lg:text-2xl font-bold text-slate-900">User Management</h2>
                     <p className="text-sm text-slate-500">Manage factory staff, roles, and access.</p>
                   </div>
-                  <div className="flex w-full md:w-auto items-center gap-3">
-                    <div className="relative w-full md:w-64">
+                  <div className="flex w-full lg:w-auto items-center gap-3">
+                    <div className="relative w-full lg:w-64">
                       <svg className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
                       <input type="text" placeholder="Search users..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-9 pr-4 h-12 shrink-0 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium transition-all" />
                     </div>
                     <button onClick={openAddUserModal} className="flex shrink-0 bg-blue-600 text-white px-4 h-12 rounded-xl text-sm font-bold shadow-md hover:bg-blue-700 transition-colors items-center gap-2">
                       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"></path></svg>
-                      <span className="hidden md:block">Add User</span>
+                      <span className="hidden lg:block">Add User</span>
                     </button>
                   </div>
                 </div>
                 
-                <div className="flex-1 overflow-x-auto overflow-y-auto md:border border-slate-200 md:rounded-xl">
-                  {isLoadingUsers ? (
+                <div className="flex-1 overflow-x-auto overflow-y-auto lg:border border-slate-200 lg:rounded-xl">
+                  {isLoadingUsers || !isMounted ? (
                     <div className="flex justify-center items-center h-full">
                       <div className="w-10 h-10 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin"></div>
                     </div>
@@ -1629,7 +1614,7 @@ export default function Dashboard({
         {/* 2. CROP MODAL */}
         {rawImageSrc && (
           <div className="absolute inset-0 z-[60] flex items-center justify-center bg-slate-900/90 backdrop-blur-sm p-4 transition-all duration-300 animate-fade-in">
-            <div className="bg-slate-100 w-full max-w-3xl rounded-2xl shadow-2xl flex flex-col h-[90vh] md:h-[80vh] overflow-hidden">
+            <div className="bg-slate-100 w-full lg:max-w-3xl rounded-2xl shadow-2xl flex flex-col h-[90vh] lg:h-[80vh] overflow-hidden">
                <div className="p-4 border-b border-slate-200 flex justify-between items-center bg-white shrink-0">
                   <h3 className="font-bold text-slate-800">Crop Image (Remove Background)</h3>
                   <button onClick={() => { setRawImageSrc(null); window.history.back(); }} className="p-2 text-slate-400 hover:bg-slate-100 rounded-full transition-colors"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg></button>
@@ -1652,7 +1637,7 @@ export default function Dashboard({
         {/* 3. BUILTY MANUAL LR EDIT & SAVE MODAL */}
         {showBuiltyEdit && matchedInvoice && (
           <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 transition-all duration-300 animate-fade-in">
-            <div className="bg-white w-full max-w-4xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="bg-white w-full lg:max-w-4xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
               {/* Header */}
               <div className="p-5 border-b border-slate-100 flex justify-between items-center bg-slate-50 shrink-0">
                  <div>
@@ -1663,7 +1648,7 @@ export default function Dashboard({
               </div>
               
               {/* Content Body - Scrollable */}
-              <div className="p-6 overflow-y-auto flex flex-col md:flex-row gap-8">
+              <div className="p-6 overflow-y-auto flex flex-col lg:flex-row gap-8">
                  
                  {/* Left Col: Form */}
                  <div className="flex-1 space-y-6">
@@ -1708,9 +1693,9 @@ export default function Dashboard({
 
         {/* 4. SINGLE INVOICE DETAILS MODAL */}
         {selectedInvoice && (
-          <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm md:p-6 transition-all duration-300 animate-fade-in" onClick={() => setSelectedInvoice(null)}>
-            <div className="bg-white md:bg-white/95 md:backdrop-blur-xl w-full h-full md:h-auto md:max-w-3xl md:rounded-2xl shadow-2xl flex flex-col overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-              <div className="flex items-center justify-between p-5 md:p-6 border-b border-slate-100 bg-slate-50 md:bg-transparent sticky top-0 z-10 shrink-0">
+          <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm lg:p-6 transition-all duration-300 animate-fade-in" onClick={() => setSelectedInvoice(null)}>
+            <div className="bg-white lg:bg-white/95 lg:backdrop-blur-xl w-full h-full lg:h-auto lg:max-w-3xl lg:rounded-2xl shadow-2xl flex flex-col overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center justify-between p-5 lg:p-6 border-b border-slate-100 bg-slate-50 lg:bg-transparent sticky top-0 z-10 shrink-0">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 bg-blue-100 text-blue-600 rounded-xl flex items-center justify-center">
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
@@ -1723,8 +1708,8 @@ export default function Dashboard({
                 <button onClick={() => setSelectedInvoice(null)} className="p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-600 rounded-full transition-colors"><svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg></button>
               </div>
               
-              <div className="p-6 md:p-8 space-y-8">
-                <div className="bg-slate-50 p-5 rounded-2xl border border-slate-100 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+              <div className="p-6 lg:p-8 space-y-8">
+                <div className="bg-slate-50 p-5 rounded-2xl border border-slate-100 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
                   <div>
                     <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">Account Details</p>
                     {selectedInvoice.sub_account ? (
@@ -1738,10 +1723,10 @@ export default function Dashboard({
                   </div>
                   
                   {/* MODAL ACTIONS: WhatsApp, View Builty, Delete Builty */}
-                  <div className="flex items-center gap-3 w-full md:w-auto">
+                  <div className="flex items-center gap-3 w-full lg:w-auto">
                     <button 
                        onClick={(e) => shareOnWhatsApp(selectedInvoice, e)}
-                       className="flex-1 md:flex-none flex items-center justify-center gap-2 px-4 py-2 bg-[#25D366]/10 text-[#128C7E] font-bold border border-[#25D366]/20 rounded-xl hover:bg-[#25D366]/20 transition-colors text-sm"
+                       className="flex-1 lg:flex-none flex items-center justify-center gap-2 px-4 py-2 bg-[#25D366]/10 text-[#128C7E] font-bold border border-[#25D366]/20 rounded-xl hover:bg-[#25D366]/20 transition-colors text-sm"
                     >
                        <svg viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51a12.8 12.8 0 00-.57-.01c-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z"/></svg>
                        Share
@@ -1749,7 +1734,7 @@ export default function Dashboard({
                     {selectedInvoice.builty_image_url && (
                       <button 
                          onClick={() => window.open(selectedInvoice.builty_image_url, "_blank")}
-                         className="flex-1 md:flex-none flex items-center justify-center gap-2 px-4 py-2 bg-indigo-50 text-indigo-700 font-bold border border-indigo-200 rounded-xl hover:bg-indigo-100 transition-colors text-sm"
+                         className="flex-1 lg:flex-none flex items-center justify-center gap-2 px-4 py-2 bg-indigo-50 text-indigo-700 font-bold border border-indigo-200 rounded-xl hover:bg-indigo-100 transition-colors text-sm"
                       >
                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
                          View Builty
@@ -1767,7 +1752,7 @@ export default function Dashboard({
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-6">
                   <div>
                     <span className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Invoice Date</span>
                     <span className="text-base font-bold text-slate-800 font-mono">{formatDisplayDate(selectedInvoice.date)}</span>
@@ -1799,7 +1784,7 @@ export default function Dashboard({
                 </div>
 
               </div>
-              <div className="p-4 md:p-6 border-t border-slate-100 bg-slate-50 flex justify-end shrink-0">
+              <div className="p-4 lg:p-6 border-t border-slate-100 bg-slate-50 flex justify-end shrink-0">
                 <button onClick={() => setSelectedInvoice(null)} className="px-6 py-2.5 bg-white border border-slate-200 text-slate-700 font-bold rounded-xl hover:bg-slate-100 transition-all text-sm shadow-sm">Close Window</button>
               </div>
             </div>
@@ -1807,24 +1792,24 @@ export default function Dashboard({
         )}
 
         {isAddUserOpen && (
-          <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm md:p-6 transition-all duration-300" onClick={closeAddUserModal}>
-            <div className="bg-white md:bg-white/95 md:backdrop-blur-xl w-full h-full md:h-auto md:max-w-md md:rounded-2xl shadow-2xl flex flex-col overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-              <div className="hidden md:flex items-center justify-between p-6 border-b border-slate-100 bg-transparent sticky top-0 z-10 shrink-0">
+          <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm lg:p-6 transition-all duration-300" onClick={closeAddUserModal}>
+            <div className="bg-white lg:bg-white/95 lg:backdrop-blur-xl w-full h-full lg:h-auto lg:max-w-md lg:rounded-2xl shadow-2xl flex flex-col overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+              <div className="hidden lg:flex items-center justify-between p-6 border-b border-slate-100 bg-transparent sticky top-0 z-10 shrink-0">
                 <h2 className="text-xl font-extrabold text-slate-800">Add New User</h2>
                 <button onClick={closeAddUserModal} className="p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-600 rounded-full transition-colors"><svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg></button>
               </div>
-              <div className="md:hidden flex items-center p-4 border-b border-slate-100 bg-slate-50 sticky top-0 z-10 shrink-0">
+              <div className="lg:hidden flex items-center p-4 border-b border-slate-100 bg-slate-50 sticky top-0 z-10 shrink-0">
                 <button onClick={closeAddUserModal} className="flex items-center gap-2 text-slate-500 hover:text-slate-800 font-bold transition-colors"><svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7"></path></svg>Back</button>
                 <h2 className="ml-4 text-lg font-extrabold text-slate-800">Add User</h2>
               </div>
-              <div className="p-6 md:p-8">
+              <div className="p-6 lg:p-8">
                 {addUserStatus.text && <div className={`mb-6 p-4 rounded-xl text-sm font-semibold border ${addUserStatus.type === "error" ? "bg-red-50 text-red-700 border-red-100" : "bg-emerald-50 text-emerald-700 border-emerald-100"}`}>{addUserStatus.text}</div>}
                 <form onSubmit={handleAddUser} className="space-y-5">
                   <div><label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wider">Username</label><input type="text" value={newUserForm.username} onChange={(e) => setNewUserForm({...newUserForm, username: e.target.value})} className="w-full px-4 h-12 shrink-0 bg-slate-50 text-slate-900 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium transition-all" required /></div>
                   <div><label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wider">Email (Optional)</label><input type="email" value={newUserForm.email} onChange={(e) => setNewUserForm({...newUserForm, email: e.target.value})} className="w-full px-4 h-12 shrink-0 bg-slate-50 text-slate-900 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium transition-all" /></div>
                   <div><label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wider">Mobile Number (Optional)</label><input type="text" value={newUserForm.mobile_number} onChange={(e) => setNewUserForm({...newUserForm, mobile_number: e.target.value})} className="w-full px-4 h-12 shrink-0 bg-slate-50 text-slate-900 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium transition-all" /></div>
                   <div><label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wider">Assign Role</label><select value={newUserForm.role_id} onChange={(e) => setNewUserForm({...newUserForm, role_id: e.target.value})} className="w-full px-4 h-12 shrink-0 bg-slate-50 text-slate-900 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium transition-all appearance-none cursor-pointer" required><option value="" disabled>Select a role...</option>{rolesList.map((role) => (<option key={role.id} value={role.id}>{role.role_name}</option>))}</select></div>
-                  <div className="pt-4"><button type="submit" disabled={isAddingUser} className="w-full bg-blue-600 text-white font-bold h-12 shrink-0 rounded-xl hover:bg-blue-700 transition-all shadow-md shadow-blue-600/20 disabled:opacity-50 text-base md:text-sm">{isAddingUser ? "Adding User..." : "Add User"}</button></div>
+                  <div className="pt-4"><button type="submit" disabled={isAddingUser} className="w-full bg-blue-600 text-white font-bold h-12 shrink-0 rounded-xl hover:bg-blue-700 transition-all shadow-md shadow-blue-600/20 disabled:opacity-50 text-base lg:text-sm">{isAddingUser ? "Adding User..." : "Add User"}</button></div>
                 </form>
               </div>
             </div>
@@ -1832,17 +1817,17 @@ export default function Dashboard({
         )}
 
         {isEditUserOpen && (
-          <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm md:p-6 transition-all duration-300" onClick={closeEditUserModal}>
-            <div className="bg-white md:bg-white/95 md:backdrop-blur-xl w-full h-full md:h-auto md:max-w-md md:rounded-2xl shadow-2xl flex flex-col overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-              <div className="hidden md:flex items-center justify-between p-6 border-b border-slate-100 bg-transparent sticky top-0 z-10 shrink-0">
+          <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm lg:p-6 transition-all duration-300" onClick={closeEditUserModal}>
+            <div className="bg-white lg:bg-white/95 lg:backdrop-blur-xl w-full h-full lg:h-auto lg:max-w-md lg:rounded-2xl shadow-2xl flex flex-col overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+              <div className="hidden lg:flex items-center justify-between p-6 border-b border-slate-100 bg-transparent sticky top-0 z-10 shrink-0">
                 <h2 className="text-xl font-extrabold text-slate-800">Edit User Profile</h2>
                 <button onClick={closeEditUserModal} className="p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-600 rounded-full transition-colors"><svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg></button>
               </div>
-              <div className="md:hidden flex items-center p-4 border-b border-slate-100 bg-slate-50 sticky top-0 z-10 shrink-0">
+              <div className="lg:hidden flex items-center p-4 border-b border-slate-100 bg-slate-50 sticky top-0 z-10 shrink-0">
                 <button onClick={closeEditUserModal} className="flex items-center gap-2 text-slate-500 hover:text-slate-800 font-bold transition-colors"><svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7"></path></svg>Back</button>
                 <h2 className="ml-4 text-lg font-extrabold text-slate-800">Edit User</h2>
               </div>
-              <div className="p-6 md:p-8">
+              <div className="p-6 lg:p-8">
                 {editUserStatus.text && <div className={`mb-6 p-4 rounded-xl text-sm font-semibold border ${editUserStatus.type === "error" ? "bg-red-50 text-red-700 border-red-100" : "bg-emerald-50 text-emerald-700 border-emerald-100"}`}>{editUserStatus.text}</div>}
                 <form onSubmit={handleUpdateUser} className="space-y-5">
                   <div><label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wider">Username</label><input type="text" value={editUserForm.username} onChange={(e) => setEditUserForm({...editUserForm, username: e.target.value})} className="w-full px-4 h-12 shrink-0 bg-slate-50 text-slate-900 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium transition-all" required /></div>
@@ -1852,7 +1837,7 @@ export default function Dashboard({
                     <div><label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wider">Assign Role</label><select value={editUserForm.role_id} onChange={(e) => setEditUserForm({...editUserForm, role_id: e.target.value})} className="w-full px-4 h-12 shrink-0 bg-slate-50 text-slate-900 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium transition-all appearance-none cursor-pointer" required><option value="" disabled>Select role...</option>{rolesList.map((role) => (<option key={role.id} value={role.id}>{role.role_name}</option>))}</select></div>
                     <div><label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wider">Status</label><select value={editUserForm.user_status} onChange={(e) => setEditUserForm({...editUserForm, user_status: e.target.value})} className="w-full px-4 h-12 shrink-0 bg-slate-50 text-slate-900 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium transition-all appearance-none cursor-pointer" required><option value="active">Active</option><option value="hold">Hold</option><option value="ban">Ban</option></select></div>
                   </div>
-                  <div className="pt-4"><button type="submit" disabled={isUpdatingUser} className="w-full bg-blue-600 text-white font-bold h-12 shrink-0 rounded-xl hover:bg-blue-700 transition-all shadow-md shadow-blue-600/20 disabled:opacity-50 text-base md:text-sm">{isUpdatingUser ? "Saving Changes..." : "Save Changes"}</button></div>
+                  <div className="pt-4"><button type="submit" disabled={isUpdatingUser} className="w-full bg-blue-600 text-white font-bold h-12 shrink-0 rounded-xl hover:bg-blue-700 transition-all shadow-md shadow-blue-600/20 disabled:opacity-50 text-base lg:text-sm">{isUpdatingUser ? "Saving Changes..." : "Save Changes"}</button></div>
                 </form>
               </div>
             </div>
@@ -1860,26 +1845,26 @@ export default function Dashboard({
         )}
 
         {activeView === "settings_company" && (
-          <div className="absolute inset-0 z-40 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm md:p-6 transition-all duration-300" onClick={closeCompanySettings}>
-            <div className="bg-white md:bg-white/95 md:backdrop-blur-xl w-full h-full md:h-auto md:max-w-xl md:rounded-2xl shadow-2xl flex flex-col overflow-y-auto animate-fade-in" onClick={(e) => e.stopPropagation()}>
-              <div className="md:hidden flex items-center p-4 border-b border-slate-100 bg-slate-50 sticky top-0 z-10 shrink-0">
+          <div className="absolute inset-0 z-40 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm lg:p-6 transition-all duration-300" onClick={closeCompanySettings}>
+            <div className="bg-white lg:bg-white/95 lg:backdrop-blur-xl w-full h-full lg:h-auto lg:max-w-xl lg:rounded-2xl shadow-2xl flex flex-col overflow-y-auto animate-fade-in" onClick={(e) => e.stopPropagation()}>
+              <div className="lg:hidden flex items-center p-4 border-b border-slate-100 bg-slate-50 sticky top-0 z-10 shrink-0">
                 <button onClick={closeCompanySettings} className="flex items-center gap-2 text-slate-500 hover:text-slate-800 font-bold transition-colors"><svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7"></path></svg>Back</button>
                 <h2 className="ml-4 text-lg font-extrabold text-slate-800">Company Info</h2>
               </div>
-              <div className="p-6 md:p-8">
-                <div className="hidden md:block mb-6 border-b border-slate-100 pb-4"><h2 className="text-2xl font-bold text-slate-900">Company Settings</h2></div>
+              <div className="p-6 lg:p-8">
+                <div className="hidden lg:block mb-6 border-b border-slate-100 pb-4"><h2 className="text-2xl font-bold text-slate-900">Company Settings</h2></div>
                 {saveStatus.text && <div className={`mb-6 p-4 rounded-xl text-sm font-semibold border ${saveStatus.type === "error" ? "bg-red-50 text-red-700 border-red-100" : "bg-emerald-50 text-emerald-700 border-emerald-100"}`}>{saveStatus.text}</div>}
                 <form onSubmit={handleSaveCompany} className="space-y-5">
                   <div><label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wider">Company Name</label><input type="text" value={editForm.company_name} onChange={(e) => setEditForm({...editForm, company_name: e.target.value})} className="w-full px-4 h-12 shrink-0 bg-slate-50 text-slate-900 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium transition-all" required /></div>
                   <div><label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wider">Factory Address</label><input type="text" value={editForm.address} onChange={(e) => setEditForm({...editForm, address: e.target.value})} className="w-full px-4 h-12 shrink-0 bg-slate-50 text-slate-900 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium transition-all" /></div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
                     <div><label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wider">Support Email</label><input type="email" value={editForm.support_email} onChange={(e) => setEditForm({...editForm, support_email: e.target.value})} className="w-full px-4 h-12 shrink-0 bg-slate-50 text-slate-900 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium transition-all" /></div>
                     <div><label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wider">Support Phone</label><input type="text" value={editForm.support_phone} onChange={(e) => setEditForm({...editForm, support_phone: e.target.value})} className="w-full px-4 h-12 shrink-0 bg-slate-50 text-slate-900 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium transition-all" /></div>
                   </div>
                   <div><label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wider">Logo URL</label><input type="text" value={editForm.logo_url} onChange={(e) => setEditForm({...editForm, logo_url: e.target.value})} className="w-full px-4 h-12 shrink-0 bg-slate-50 text-slate-900 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium transition-all" /></div>
-                  <div className="pt-6 flex flex-col md:flex-row gap-4">
-                    <button type="submit" disabled={isSaving} className="w-full bg-blue-600 text-white font-bold h-12 shrink-0 rounded-xl hover:bg-blue-700 transition-all shadow-md shadow-blue-600/20 disabled:opacity-50 text-base md:text-sm">{isSaving ? "Saving..." : "Save Company Info"}</button>
-                    <button type="button" onClick={closeCompanySettings} className="hidden md:block px-6 h-12 bg-slate-100 text-slate-700 font-bold rounded-xl hover:bg-slate-200 transition-all text-sm">Cancel</button>
+                  <div className="pt-6 flex flex-col lg:flex-row gap-4">
+                    <button type="submit" disabled={isSaving} className="w-full bg-blue-600 text-white font-bold h-12 shrink-0 rounded-xl hover:bg-blue-700 transition-all shadow-md shadow-blue-600/20 disabled:opacity-50 text-base lg:text-sm">{isSaving ? "Saving..." : "Save Company Info"}</button>
+                    <button type="button" onClick={closeCompanySettings} className="hidden lg:block px-6 h-12 bg-slate-100 text-slate-700 font-bold rounded-xl hover:bg-slate-200 transition-all text-sm">Cancel</button>
                   </div>
                 </form>
               </div>
@@ -1898,7 +1883,7 @@ export default function Dashboard({
           )}
           <footer className="h-9 flex justify-between items-center px-6 text-slate-500 font-mono text-[11px] tracking-wider">
             <span>v1.0.6 - Build: {isMounted && process.env.NODE_ENV === 'production' ? new Date().toISOString().slice(0, 16).replace('T', ' ') : 'Local-Dev'}</span>
-            <span>{currentTime ? currentTime.toLocaleString(undefined, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }) : 'Initializing clock...'}</span>
+            <span>{currentTime && currentTime instanceof Date ? currentTime.toLocaleString(undefined, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }) : 'Initializing clock...'}</span>
           </footer>
         </div>
 
