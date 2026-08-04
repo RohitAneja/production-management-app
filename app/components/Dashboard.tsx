@@ -3,7 +3,8 @@
 import { useState, useEffect, useRef } from "react";
 import { createClient } from "@supabase/supabase-js";
 import * as XLSX from "xlsx";
-import Tesseract from 'tesseract.js';
+import ReactCrop, { type Crop } from 'react-image-crop';
+import 'react-image-crop/dist/ReactCrop.css';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -98,26 +99,40 @@ export default function Dashboard({
   const [builtyForm, setBuiltyForm] = useState({ lr_number: "", lr_date: "" });
   const [isSavingBuilty, setIsSavingBuilty] = useState(false);
 
-  // NEW: Delete Builty Admin States
+  // Delete Builty Admin States
   const [invoiceToDeleteBuilty, setInvoiceToDeleteBuilty] = useState<any | null>(null);
   const [isDeletingBuilty, setIsDeletingBuilty] = useState(false);
   const [deleteBuiltyStatus, setDeleteBuiltyStatus] = useState({ type: "", text: "" });
 
+  // Crop Modal States
+  const [rawImageSrc, setRawImageSrc] = useState<string | null>(null);
+  const [crop, setCrop] = useState<Crop>({ unit: '%', width: 90, height: 90, x: 5, y: 5 });
+  const imgRef = useRef<HTMLImageElement | null>(null);
+
   // ==========================================
-  // HELPERS & LIFECYCLE
+  // HELPERS & LIFECYCLE (FIXED FOR TABLET VERTICAL)
   // ==========================================
   useEffect(() => {
     if (typeof window !== "undefined") {
-      setIsVerticalMode(window.innerHeight > window.innerWidth);
+      const checkOrientation = () => {
+        setIsVerticalMode(window.innerHeight > window.innerWidth);
+      };
+      
+      checkOrientation(); // Initial check
+      window.addEventListener('resize', checkOrientation); // Live updates when tablet rotates
+      
       if (!window.history.state || !window.history.state.view) {
         window.history.replaceState({ view: "dashboard" }, "");
       }
+
+      return () => window.removeEventListener('resize', checkOrientation);
     }
   }, []);
 
   useEffect(() => {
     const handlePopState = (e: PopStateEvent) => {
       if (isSidebarOpen && isVerticalMode) setIsSidebarOpen(false);
+      else if (rawImageSrc) setRawImageSrc(null); // Close crop modal on back
       else if (isAddUserOpen) setIsAddUserOpen(false); 
       else if (isEditUserOpen) setIsEditUserOpen(false);
       else if (selectedInvoice) setSelectedInvoice(null);
@@ -130,7 +145,7 @@ export default function Dashboard({
     };
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
-  }, [isAddUserOpen, isEditUserOpen, selectedInvoice, showBuiltyEdit, invoiceToDeleteBuilty, isSidebarOpen, isVerticalMode]);
+  }, [isAddUserOpen, isEditUserOpen, selectedInvoice, showBuiltyEdit, invoiceToDeleteBuilty, isSidebarOpen, isVerticalMode, rawImageSrc]);
 
   const handleNavigation = (id: string) => {
     if (id !== activeView) {
@@ -308,19 +323,99 @@ export default function Dashboard({
     return acc;
   }, {} as Record<string, number>);
 
+  // ==========================================
+  // IMAGE COMPRESSION HELPER (PREVENTS RAM CRASH)
+  // ==========================================
+  const compressImage = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const img = new window.Image();
+      const objectUrl = URL.createObjectURL(file);
+      
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const MAX_WIDTH = 1200; // Shrinks massive 4K phone photos safely
+        const scaleSize = MAX_WIDTH / img.width;
+        
+        canvas.width = Math.min(img.width, MAX_WIDTH);
+        canvas.height = img.height * (scaleSize < 1 ? scaleSize : 1);
+        
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+            const compressedBase64 = canvas.toDataURL('image/jpeg', 0.8);
+            URL.revokeObjectURL(objectUrl);
+            resolve(compressedBase64);
+        } else {
+            reject(new Error("Canvas context failed"));
+        }
+      };
+      img.onerror = (err) => {
+          URL.revokeObjectURL(objectUrl);
+          reject(err);
+      };
+      img.src = objectUrl;
+    });
+  };
 
   // ==========================================
-  // MANUAL BUILTY UPLOAD LOGIC
+  // BUILTY CROP & UPLOAD LOGIC
   // ==========================================
-  const handleBuiltyUploadChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleBuiltyUploadChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
-      setBuiltyFile(file);
-      setBuiltyPreviewUrl(URL.createObjectURL(file));
-      setBuiltyStatus({ type: "success", text: "Image Ready! Please select a pending invoice below." });
+      setBuiltyStatus({ type: "info", text: "Loading image..." });
       
+      try {
+        const compressedBase64 = await compressImage(file);
+        setRawImageSrc(compressedBase64);
+        setBuiltyStatus({ type: "", text: "" });
+        window.history.pushState({ modal: 'crop' }, ""); // Back gesture support for crop modal
+      } catch (err) {
+        setBuiltyStatus({ type: "error", text: "Failed to load image. Try another." });
+      }
+
       if (cameraInputRef.current) cameraInputRef.current.value = "";
       if (galleryInputRef.current) galleryInputRef.current.value = "";
+    }
+  };
+
+  const applyCrop = () => {
+    const image = imgRef.current;
+    if (!image || !crop.width || !crop.height) {
+        setRawImageSrc(null); // Just close if they didn't crop
+        window.history.back();
+        return;
+    }
+
+    const canvas = document.createElement('canvas');
+    const scaleX = image.naturalWidth / image.width;
+    const scaleY = image.naturalHeight / image.height;
+    canvas.width = crop.width * scaleX;
+    canvas.height = crop.height * scaleY;
+    const ctx = canvas.getContext('2d');
+
+    if (ctx) {
+      ctx.drawImage(
+        image,
+        crop.x * scaleX,
+        crop.y * scaleY,
+        crop.width * scaleX,
+        crop.height * scaleY,
+        0,
+        0,
+        crop.width * scaleX,
+        crop.height * scaleY
+      );
+
+      canvas.toBlob((blob) => {
+        if (!blob) return;
+        const croppedFile = new File([blob], "cropped_builty.jpg", { type: "image/jpeg" });
+        setBuiltyFile(croppedFile);
+        setBuiltyPreviewUrl(URL.createObjectURL(blob));
+        setBuiltyStatus({ type: "success", text: "Image Cropped & Ready! Select an invoice below to attach." });
+        setRawImageSrc(null);
+        window.history.back(); // Pop the crop modal state
+      }, 'image/jpeg', 0.9);
     }
   };
 
@@ -407,23 +502,21 @@ export default function Dashboard({
     setDeleteBuiltyStatus({ type: "info", text: "Removing builty details and photo..." });
 
     try {
-      // 1. Delete image from Storage if it exists
       if (invoiceToDeleteBuilty.builty_image_url && invoiceToDeleteBuilty.builty_image_url.includes('/builties/')) {
          try {
              const urlParts = invoiceToDeleteBuilty.builty_image_url.split('/');
              const rawFileName = urlParts[urlParts.length - 1];
-             const fileName = decodeURIComponent(rawFileName); // Fixes spaces/special chars in URL
+             const fileName = decodeURIComponent(rawFileName);
 
              if (fileName) {
                 const { error: storageErr } = await supabase.storage.from('builties').remove([fileName]);
-                if (storageErr) console.warn("Failed to delete from storage (might already be deleted):", storageErr);
+                if (storageErr) console.warn("Failed to delete from storage:", storageErr);
              }
          } catch (e) {
              console.warn("Error parsing image URL for deletion:", e);
          }
       }
 
-      // 2. Update Database Record to wipe LR data
       const { error: dbErr } = await supabase.from('invoices').update({
           lr_number: null,
           lr_date: null,
@@ -437,9 +530,8 @@ export default function Dashboard({
       setTimeout(() => {
           setInvoiceToDeleteBuilty(null);
           setDeleteBuiltyStatus({ type: "", text: "" });
-          fetchAllInvoices(); // Refresh the active list
+          fetchAllInvoices(); 
           
-          // Update details modal if it happens to be open behind the confirm modal
           if (selectedInvoice && selectedInvoice.invoice_no === invoiceToDeleteBuilty.invoice_no) {
               setSelectedInvoice({...selectedInvoice, lr_number: null, lr_date: null, builty_image_url: null});
           }
@@ -450,56 +542,6 @@ export default function Dashboard({
        setDeleteBuiltyStatus({ type: "error", text: "Failed to delete: " + (err.message || "Unknown error") });
     }
     setIsDeletingBuilty(false);
-  };
-
-  // ==========================================
-  // FORM HANDLERS (Users & Settings)
-  // ==========================================
-  const handleAddUser = async (e: React.FormEvent) => {
-    e.preventDefault(); setIsAddingUser(true); setAddUserStatus({ type: "", text: "" });
-    try {
-      const { error } = await supabase.from("users").insert([{
-        username: newUserForm.username, email: newUserForm.email.trim() === "" ? null : newUserForm.email.trim(), mobile_number: newUserForm.mobile_number.trim() === "" ? null : newUserForm.mobile_number.trim(), role_id: newUserForm.role_id, is_active: true, user_status: 'active'
-      }]);
-      if (error) setAddUserStatus({ type: "error", text: error.message || "Failed to add user." });
-      else {
-        setAddUserStatus({ type: "success", text: "User added successfully!" }); fetchUsersAndRoles(); 
-        setTimeout(() => { closeAddUserModal(); setNewUserForm({ username: "", email: "", mobile_number: "", role_id: rolesList[0]?.id || "" }); setAddUserStatus({ type: "", text: "" }); }, 1500);
-      }
-    } catch (err) { setAddUserStatus({ type: "error", text: "An unexpected error occurred." }); }
-    setIsAddingUser(false);
-  };
-
-  const handleUpdateUser = async (e: React.FormEvent) => {
-    e.preventDefault(); setIsUpdatingUser(true); setEditUserStatus({ type: "", text: "" });
-    try {
-      const { error } = await supabase.from("users").update({
-        username: editUserForm.username, email: editUserForm.email.trim() === "" ? null : editUserForm.email.trim(), mobile_number: editUserForm.mobile_number.trim() === "" ? null : editUserForm.mobile_number.trim(), role_id: editUserForm.role_id, user_status: editUserForm.user_status, is_active: editUserForm.user_status === 'active'
-      }).eq("id", editUserForm.id);
-      if (error) setEditUserStatus({ type: "error", text: error.message || "Failed to update user." });
-      else {
-        setEditUserStatus({ type: "success", text: "User updated successfully!" }); fetchUsersAndRoles(); 
-        setTimeout(() => { closeEditUserModal(); setEditUserStatus({ type: "", text: "" }); }, 1500);
-      }
-    } catch (err) { setEditUserStatus({ type: "error", text: "An unexpected error occurred." }); }
-    setIsUpdatingUser(false);
-  };
-
-  const handleSaveCompany = async (e: React.FormEvent) => {
-    e.preventDefault(); setIsSaving(true); setSaveStatus({ type: "", text: "" });
-    try {
-      const { data: existingRecord } = await supabase.from("company_settings").select("id").limit(1).single();
-      if (!existingRecord) { setIsSaving(false); setSaveStatus({ type: "error", text: "Error: No record found." }); return; }
-      const { error } = await supabase.from("company_settings").update({
-        company_name: editForm.company_name, address: editForm.address, support_email: editForm.support_email, support_phone: editForm.support_phone, logo_url: editForm.logo_url,
-      }).eq("id", existingRecord.id);
-      setIsSaving(false);
-      if (error) setSaveStatus({ type: "error", text: "Failed to update settings." });
-      else {
-        setCompany(editForm); setSaveStatus({ type: "success", text: "Saved successfully! Closing..." });
-        setTimeout(() => { closeCompanySettings(); setSaveStatus({ type: "", text: "" }); }, 1500);
-      }
-    } catch (err) { setIsSaving(false); setSaveStatus({ type: "error", text: "An unexpected error occurred." }); }
   };
 
   // ==========================================
@@ -759,6 +801,54 @@ export default function Dashboard({
     }
   }
 
+  // User handers skipped in preview for brevity...
+  const handleAddUser = async (e: React.FormEvent) => {
+    e.preventDefault(); setIsAddingUser(true); setAddUserStatus({ type: "", text: "" });
+    try {
+      const { error } = await supabase.from("users").insert([{
+        username: newUserForm.username, email: newUserForm.email.trim() === "" ? null : newUserForm.email.trim(), mobile_number: newUserForm.mobile_number.trim() === "" ? null : newUserForm.mobile_number.trim(), role_id: newUserForm.role_id, is_active: true, user_status: 'active'
+      }]);
+      if (error) setAddUserStatus({ type: "error", text: error.message || "Failed to add user." });
+      else {
+        setAddUserStatus({ type: "success", text: "User added successfully!" }); fetchUsersAndRoles(); 
+        setTimeout(() => { closeAddUserModal(); setNewUserForm({ username: "", email: "", mobile_number: "", role_id: rolesList[0]?.id || "" }); setAddUserStatus({ type: "", text: "" }); }, 1500);
+      }
+    } catch (err) { setAddUserStatus({ type: "error", text: "An unexpected error occurred." }); }
+    setIsAddingUser(false);
+  };
+
+  const handleUpdateUser = async (e: React.FormEvent) => {
+    e.preventDefault(); setIsUpdatingUser(true); setEditUserStatus({ type: "", text: "" });
+    try {
+      const { error } = await supabase.from("users").update({
+        username: editUserForm.username, email: editUserForm.email.trim() === "" ? null : editUserForm.email.trim(), mobile_number: editUserForm.mobile_number.trim() === "" ? null : editUserForm.mobile_number.trim(), role_id: editUserForm.role_id, user_status: editUserForm.user_status, is_active: editUserForm.user_status === 'active'
+      }).eq("id", editUserForm.id);
+      if (error) setEditUserStatus({ type: "error", text: error.message || "Failed to update user." });
+      else {
+        setEditUserStatus({ type: "success", text: "User updated successfully!" }); fetchUsersAndRoles(); 
+        setTimeout(() => { closeEditUserModal(); setEditUserStatus({ type: "", text: "" }); }, 1500);
+      }
+    } catch (err) { setEditUserStatus({ type: "error", text: "An unexpected error occurred." }); }
+    setIsUpdatingUser(false);
+  };
+
+  const handleSaveCompany = async (e: React.FormEvent) => {
+    e.preventDefault(); setIsSaving(true); setSaveStatus({ type: "", text: "" });
+    try {
+      const { data: existingRecord } = await supabase.from("company_settings").select("id").limit(1).single();
+      if (!existingRecord) { setIsSaving(false); setSaveStatus({ type: "error", text: "Error: No record found." }); return; }
+      const { error } = await supabase.from("company_settings").update({
+        company_name: editForm.company_name, address: editForm.address, support_email: editForm.support_email, support_phone: editForm.support_phone, logo_url: editForm.logo_url,
+      }).eq("id", existingRecord.id);
+      setIsSaving(false);
+      if (error) setSaveStatus({ type: "error", text: "Failed to update settings." });
+      else {
+        setCompany(editForm); setSaveStatus({ type: "success", text: "Saved successfully! Closing..." });
+        setTimeout(() => { closeCompanySettings(); setSaveStatus({ type: "", text: "" }); }, 1500);
+      }
+    } catch (err) { setIsSaving(false); setSaveStatus({ type: "error", text: "An unexpected error occurred." }); }
+  };
+
   return (
     <div className="h-screen w-full flex overflow-hidden font-sans bg-slate-50 text-slate-900">
       
@@ -820,7 +910,6 @@ export default function Dashboard({
       <main className="flex-1 flex flex-col relative bg-[url('/bg-mobile.jpg')] md:bg-[url('/bg-desktop.jpg')] bg-cover bg-center bg-no-repeat bg-blend-overlay bg-white/90 overflow-y-auto">
         <header className="h-16 bg-white/70 backdrop-blur-md border-b border-slate-200/50 flex justify-between items-center px-4 md:px-8 shadow-sm shrink-0 z-10">
           <div className="flex items-center gap-4">
-            
             <button onClick={() => {
               if (isVerticalMode) {
                 if (isSidebarOpen) {
@@ -836,7 +925,6 @@ export default function Dashboard({
             }} className="p-2 text-slate-500 hover:text-slate-900 hover:bg-white/50 rounded-lg transition-colors">
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
             </button>
-            
             <h1 className="text-slate-400 font-bold hidden md:block">
               {isVerticalMode ? (isSidebarOpen ? "Select" : "Select") : (isSidebarOpen ? "Select an option from the menu" : "Select an option from the menu")}
             </h1>
@@ -932,87 +1020,89 @@ export default function Dashboard({
                       </button>
                     </div>
 
-                    <div className="md:hidden flex flex-col gap-4">
-                      {scannedInvoices.map((inv, idx) => (
-                        <div key={idx} className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
-                          <div className="flex justify-between items-start mb-2">
-                            <span className="font-bold text-slate-900">{formatDisplayInvoiceNo(inv.invoice_no)}</span>
-                            <span className="text-sm font-bold text-emerald-600">₹{formatIndianAmount(inv.amount)}</span>
+                    {isVerticalMode ? (
+                      <div className="flex flex-col gap-4">
+                        {scannedInvoices.map((inv, idx) => (
+                          <div key={idx} className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+                            <div className="flex justify-between items-start mb-2">
+                              <span className="font-bold text-slate-900">{formatDisplayInvoiceNo(inv.invoice_no)}</span>
+                              <span className="text-sm font-bold text-emerald-600">₹{formatIndianAmount(inv.amount)}</span>
+                            </div>
+                            <div className="mb-2">
+                              {inv.sub_account ? (
+                                <>
+                                  <span className="font-bold text-slate-900 text-sm block">{inv.sub_account}</span>
+                                  <span className="text-xs text-slate-500 font-semibold">c/o {inv.main_account}</span>
+                                </>
+                              ) : (
+                                <span className="font-semibold text-slate-900 text-sm">{inv.main_account}</span>
+                              )}
+                            </div>
+                            <div className="flex justify-between items-center text-xs mb-3">
+                              <span className="text-slate-500 font-mono">{formatDisplayDate(inv.date)}</span>
+                              {inv.num_of_cases ? (
+                                <span className="font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-md border border-indigo-100">
+                                  {inv.num_of_cases} {inv.packing_type}
+                                </span>
+                              ) : (
+                                <span className="text-slate-300">—</span>
+                              )}
+                            </div>
+                            <div className="flex justify-between items-center text-xs text-slate-400 border-t border-slate-50 pt-2">
+                              <span className="truncate max-w-[150px]">{inv.source_file}</span>
+                              <span className="truncate max-w-[120px]">{inv.transport || "No Transport"}</span>
+                            </div>
                           </div>
-                          <div className="mb-2">
-                            {inv.sub_account ? (
-                              <>
-                                <span className="font-bold text-slate-900 text-sm block">{inv.sub_account}</span>
-                                <span className="text-xs text-slate-500 font-semibold">c/o {inv.main_account}</span>
-                              </>
-                            ) : (
-                              <span className="font-semibold text-slate-900 text-sm">{inv.main_account}</span>
-                            )}
-                          </div>
-                          <div className="flex justify-between items-center text-xs mb-3">
-                            <span className="text-slate-500 font-mono">{formatDisplayDate(inv.date)}</span>
-                            {inv.num_of_cases ? (
-                              <span className="font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-md border border-indigo-100">
-                                {inv.num_of_cases} {inv.packing_type}
-                              </span>
-                            ) : (
-                              <span className="text-slate-300">—</span>
-                            )}
-                          </div>
-                          <div className="flex justify-between items-center text-xs text-slate-400 border-t border-slate-50 pt-2">
-                            <span className="truncate max-w-[150px]">{inv.source_file}</span>
-                            <span className="truncate max-w-[120px]">{inv.transport || "No Transport"}</span>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-
-                    <div className="hidden md:block overflow-x-auto border border-slate-200 rounded-xl bg-white shadow-sm">
-                      <table className="w-full text-left border-collapse min-w-[1100px]">
-                        <thead className="bg-slate-100 border-b border-slate-200">
-                          <tr className="text-slate-600 text-xs uppercase tracking-wider font-bold">
-                            <th className="p-4 pl-6 w-[15%]">File Name</th>
-                            <th className="p-4 w-[10%]">Inv No</th>
-                            <th className="p-4 w-[10%]">Date</th>
-                            <th className="p-4 w-[25%]">Account</th>
-                            <th className="p-4 w-[10%]">Cases</th>
-                            <th className="p-4 w-[10%]">Amount</th>
-                            <th className="p-4 w-[20%]">Transport</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100 bg-white">
-                          {scannedInvoices.map((inv, idx) => (
-                            <tr key={idx} className="hover:bg-slate-50 transition-colors">
-                              <td className="p-4 pl-6 text-sm font-medium text-slate-500 truncate max-w-[150px]">{inv.source_file}</td>
-                              <td className="p-4 text-sm font-bold text-slate-900">{formatDisplayInvoiceNo(inv.invoice_no)}</td>
-                              <td className="p-4 text-sm text-slate-600 font-mono tracking-tight">{formatDisplayDate(inv.date)}</td>
-                              <td className="p-4 text-sm text-slate-700">
-                                {inv.sub_account ? (
-                                  <>
-                                    <span className="font-bold text-slate-900 block md:inline">{inv.sub_account}</span>
-                                    <span className="text-slate-400 font-normal mx-1 hidden md:inline">c/o</span>
-                                    <span className="block md:inline text-xs md:text-sm font-semibold">{inv.main_account}</span>
-                                  </>
-                                ) : (
-                                  <span className="font-semibold text-slate-900">{inv.main_account}</span>
-                                )}
-                              </td>
-                              <td className="p-4 text-sm">
-                                {inv.num_of_cases ? (
-                                  <span className="font-bold text-indigo-700 bg-indigo-50 px-2 py-1 rounded-md border border-indigo-100">
-                                    {inv.num_of_cases} {inv.packing_type}
-                                  </span>
-                                ) : (
-                                  <span className="text-slate-300">—</span>
-                                )}
-                              </td>
-                              <td className="p-4 text-sm font-bold text-emerald-600">₹{formatIndianAmount(inv.amount)}</td>
-                              <td className="p-4 text-sm text-slate-600">{inv.transport}</td>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="overflow-x-auto border border-slate-200 rounded-xl bg-white shadow-sm">
+                        <table className="w-full text-left border-collapse min-w-[1100px]">
+                          <thead className="bg-slate-100 border-b border-slate-200">
+                            <tr className="text-slate-600 text-xs uppercase tracking-wider font-bold">
+                              <th className="p-4 pl-6 w-[15%]">File Name</th>
+                              <th className="p-4 w-[10%]">Inv No</th>
+                              <th className="p-4 w-[10%]">Date</th>
+                              <th className="p-4 w-[25%]">Account</th>
+                              <th className="p-4 w-[10%]">Cases</th>
+                              <th className="p-4 w-[10%]">Amount</th>
+                              <th className="p-4 w-[20%]">Transport</th>
                             </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100 bg-white">
+                            {scannedInvoices.map((inv, idx) => (
+                              <tr key={idx} className="hover:bg-slate-50 transition-colors">
+                                <td className="p-4 pl-6 text-sm font-medium text-slate-500 truncate max-w-[150px]">{inv.source_file}</td>
+                                <td className="p-4 text-sm font-bold text-slate-900">{formatDisplayInvoiceNo(inv.invoice_no)}</td>
+                                <td className="p-4 text-sm text-slate-600 font-mono tracking-tight">{formatDisplayDate(inv.date)}</td>
+                                <td className="p-4 text-sm text-slate-700">
+                                  {inv.sub_account ? (
+                                    <>
+                                      <span className="font-bold text-slate-900 block md:inline">{inv.sub_account}</span>
+                                      <span className="text-slate-400 font-normal mx-1 hidden md:inline">c/o</span>
+                                      <span className="block md:inline text-xs md:text-sm font-semibold">{inv.main_account}</span>
+                                    </>
+                                  ) : (
+                                    <span className="font-semibold text-slate-900">{inv.main_account}</span>
+                                  )}
+                                </td>
+                                <td className="p-4 text-sm">
+                                  {inv.num_of_cases ? (
+                                    <span className="font-bold text-indigo-700 bg-indigo-50 px-2 py-1 rounded-md border border-indigo-100">
+                                      {inv.num_of_cases} {inv.packing_type}
+                                    </span>
+                                  ) : (
+                                    <span className="text-slate-300">—</span>
+                                  )}
+                                </td>
+                                <td className="p-4 text-sm font-bold text-emerald-600">₹{formatIndianAmount(inv.amount)}</td>
+                                <td className="p-4 text-sm text-slate-600">{inv.transport}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -1087,106 +1177,107 @@ export default function Dashboard({
                     </div>
                   ) : (
                     <>
-                      <div className="md:hidden flex flex-col divide-y divide-slate-100">
-                        {filteredPendingInvoices.map((inv) => (
-                          <div 
-                             key={inv.invoice_no} 
-                             onClick={() => handlePendingInvoiceClick(inv)}
-                             className="p-4 hover:bg-blue-50 transition-colors cursor-pointer group"
-                          >
-                            <div className="flex justify-between items-start mb-2">
-                              <span className="font-bold text-slate-900 group-hover:text-blue-700 transition-colors">{formatDisplayInvoiceNo(inv.invoice_no)}</span>
-                              <span className="text-sm font-bold text-slate-400 font-mono">{formatDisplayDate(inv.date)}</span>
+                      {isVerticalMode ? (
+                        <div className="flex flex-col divide-y divide-slate-100">
+                          {filteredPendingInvoices.map((inv) => (
+                            <div 
+                               key={inv.invoice_no} 
+                               onClick={() => handlePendingInvoiceClick(inv)}
+                               className="p-4 hover:bg-blue-50 transition-colors cursor-pointer group"
+                            >
+                              <div className="flex justify-between items-start mb-2">
+                                <span className="font-bold text-slate-900 group-hover:text-blue-700 transition-colors">{formatDisplayInvoiceNo(inv.invoice_no)}</span>
+                                <span className="text-sm font-bold text-slate-400 font-mono">{formatDisplayDate(inv.date)}</span>
+                              </div>
+                              <div className="mb-2">
+                                {inv.sub_account ? (
+                                  <>
+                                    <span className="font-bold text-slate-900 text-sm block">{inv.sub_account}</span>
+                                    <span className="text-xs text-slate-500 font-semibold">c/o {inv.main_account}</span>
+                                  </>
+                                ) : (
+                                  <span className="font-semibold text-slate-900 text-sm">{inv.main_account}</span>
+                                )}
+                              </div>
+                              <div className="flex justify-between items-center text-xs mt-3 border-t border-slate-50 pt-2">
+                                 <span className="font-bold text-slate-500 uppercase">{inv.transport || "No Transport"}</span>
+                                {inv.num_of_cases ? (
+                                  <span className="font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-md border border-indigo-100">
+                                    {inv.num_of_cases} {inv.packing_type}
+                                  </span>
+                                ) : (
+                                  <span className="text-slate-300">—</span>
+                                )}
+                              </div>
                             </div>
-                            <div className="mb-2">
-                              {inv.sub_account ? (
-                                <>
-                                  <span className="font-bold text-slate-900 text-sm block">{inv.sub_account}</span>
-                                  <span className="text-xs text-slate-500 font-semibold">c/o {inv.main_account}</span>
-                                </>
-                              ) : (
-                                <span className="font-semibold text-slate-900 text-sm">{inv.main_account}</span>
-                              )}
-                            </div>
-                            <div className="flex justify-between items-center text-xs mt-3 border-t border-slate-50 pt-2">
-                               <span className="font-bold text-slate-500 uppercase">{inv.transport || "No Transport"}</span>
-                              {inv.num_of_cases ? (
-                                <span className="font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-md border border-indigo-100">
-                                  {inv.num_of_cases} {inv.packing_type}
-                                </span>
-                              ) : (
-                                <span className="text-slate-300">—</span>
-                              )}
-                            </div>
-                          </div>
-                        ))}
-                        {filteredPendingInvoices.length === 0 && (
-                          <div className="p-8 text-center text-slate-400 text-sm font-medium">No pending invoices. Great job!</div>
-                        )}
-                      </div>
-
-                      <div className="hidden md:block overflow-x-auto border border-slate-200 rounded-xl bg-white shadow-sm">
-                        <table className="w-full text-left border-collapse min-w-[900px]">
-                          <thead className="bg-slate-50 border-b border-slate-200">
-                            <tr className="text-slate-600 text-xs uppercase tracking-wider font-bold">
-                              <th className="p-4 pl-6 w-[15%]">Inv No</th>
-                              <th className="p-4 w-[15%]">Date</th>
-                              <th className="p-4 w-[35%]">Account</th>
-                              <th className="p-4 w-[20%]">Transport</th>
-                              <th className="p-4 w-[15%] text-right pr-6">Cases</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-slate-100 bg-white">
-                            {filteredPendingInvoices.map((inv) => (
-                              <tr 
-                                 key={inv.invoice_no} 
-                                 onClick={() => handlePendingInvoiceClick(inv)}
-                                 className="hover:bg-blue-50/70 transition-colors cursor-pointer group"
-                              >
-                                <td className="p-4 pl-6 text-sm font-bold text-slate-900 group-hover:text-blue-700 transition-colors">
-                                  {formatDisplayInvoiceNo(inv.invoice_no)}
-                                </td>
-                                <td className="p-4 text-sm text-slate-600 font-mono tracking-tight">
-                                  {formatDisplayDate(inv.date)}
-                                </td>
-                                <td className="p-4 text-sm text-slate-700">
-                                  {inv.sub_account ? (
-                                    <>
-                                      <span className="font-bold text-slate-900 block md:inline">{inv.sub_account}</span>
-                                      <span className="text-slate-400 font-normal mx-1 hidden md:inline">c/o</span>
-                                      <span className="block md:inline text-xs md:text-sm font-semibold">{inv.main_account}</span>
-                                    </>
-                                  ) : (
-                                    <span className="font-semibold text-slate-900">{inv.main_account}</span>
-                                  )}
-                                </td>
-                                <td className="p-4 text-sm font-semibold text-slate-500">
-                                  {inv.transport || "—"}
-                                </td>
-                                <td className="p-4 pr-6 text-sm text-right">
-                                  {inv.num_of_cases ? (
-                                    <span className="font-bold text-indigo-700 bg-indigo-50 px-2 py-1 rounded-md border border-indigo-100 inline-block">
-                                      {inv.num_of_cases} {inv.packing_type}
-                                    </span>
-                                  ) : (
-                                    <span className="text-slate-300">—</span>
-                                  )}
-                                </td>
+                          ))}
+                          {filteredPendingInvoices.length === 0 && (
+                            <div className="p-8 text-center text-slate-400 text-sm font-medium">No pending invoices. Great job!</div>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="overflow-x-auto border border-slate-200 rounded-xl bg-white shadow-sm">
+                          <table className="w-full text-left border-collapse min-w-[900px]">
+                            <thead className="bg-slate-50 border-b border-slate-200">
+                              <tr className="text-slate-600 text-xs uppercase tracking-wider font-bold">
+                                <th className="p-4 pl-6 w-[15%]">Inv No</th>
+                                <th className="p-4 w-[15%]">Date</th>
+                                <th className="p-4 w-[35%]">Account</th>
+                                <th className="p-4 w-[20%]">Transport</th>
+                                <th className="p-4 w-[15%] text-right pr-6">Cases</th>
                               </tr>
-                            ))}
-                            {filteredPendingInvoices.length === 0 && (
-                              <tr><td colSpan={5} className="p-12 text-center text-emerald-600 font-bold bg-emerald-50/50">All caught up! No invoices are pending LR details.</td></tr>
-                            )}
-                          </tbody>
-                        </table>
-                      </div>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100 bg-white">
+                              {filteredPendingInvoices.map((inv) => (
+                                <tr 
+                                   key={inv.invoice_no} 
+                                   onClick={() => handlePendingInvoiceClick(inv)}
+                                   className="hover:bg-blue-50/70 transition-colors cursor-pointer group"
+                                >
+                                  <td className="p-4 pl-6 text-sm font-bold text-slate-900 group-hover:text-blue-700 transition-colors">
+                                    {formatDisplayInvoiceNo(inv.invoice_no)}
+                                  </td>
+                                  <td className="p-4 text-sm text-slate-600 font-mono tracking-tight">
+                                    {formatDisplayDate(inv.date)}
+                                  </td>
+                                  <td className="p-4 text-sm text-slate-700">
+                                    {inv.sub_account ? (
+                                      <>
+                                        <span className="font-bold text-slate-900 block md:inline">{inv.sub_account}</span>
+                                        <span className="text-slate-400 font-normal mx-1 hidden md:inline">c/o</span>
+                                        <span className="block md:inline text-xs md:text-sm font-semibold">{inv.main_account}</span>
+                                      </>
+                                    ) : (
+                                      <span className="font-semibold text-slate-900">{inv.main_account}</span>
+                                    )}
+                                  </td>
+                                  <td className="p-4 text-sm font-semibold text-slate-500">
+                                    {inv.transport || "—"}
+                                  </td>
+                                  <td className="p-4 pr-6 text-sm text-right">
+                                    {inv.num_of_cases ? (
+                                      <span className="font-bold text-indigo-700 bg-indigo-50 px-2 py-1 rounded-md border border-indigo-100 inline-block">
+                                        {inv.num_of_cases} {inv.packing_type}
+                                      </span>
+                                    ) : (
+                                      <span className="text-slate-300">—</span>
+                                    )}
+                                  </td>
+                                </tr>
+                              ))}
+                              {filteredPendingInvoices.length === 0 && (
+                                <tr><td colSpan={5} className="p-12 text-center text-emerald-600 font-bold bg-emerald-50/50">All caught up! No invoices are pending LR details.</td></tr>
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
                     </>
                   )}
                 </div>
               </div>
             </div>
           )}
-
 
           {/* ========================================================= */}
           {/* INVOICE REGISTER VIEW */}
@@ -1195,7 +1286,6 @@ export default function Dashboard({
             <div className="flex-1 flex flex-col bg-white md:bg-white/95 md:backdrop-blur-xl rounded-none md:rounded-2xl shadow-none md:shadow-xl border-none md:border md:border-white overflow-hidden animate-fade-in relative">
               <div className="flex-1 flex flex-col h-full relative">
                 
-                {/* Header & Search Bar */}
                 <div className="p-4 md:p-6 border-b border-slate-100 bg-white/70 backdrop-blur-md sticky top-0 z-20 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 shrink-0">
                   <div>
                     <h2 className="text-xl md:text-2xl font-bold text-slate-900">Invoice Register</h2>
@@ -1220,51 +1310,50 @@ export default function Dashboard({
                     </div>
                   ) : (
                     <>
-                      {/* MOBILE CARD VIEW FOR INVOICE REGISTER */}
-                      <div className="md:hidden flex flex-col divide-y divide-slate-100">
-                        {filteredRegisterInvoices.map((inv) => (
-                          <div key={inv.invoice_no} onClick={() => setSelectedInvoice(inv)} className="p-4 hover:bg-blue-50/50 transition-colors cursor-pointer flex flex-col">
-                            <div className="flex justify-between items-start mb-2">
-                              <span className="font-bold text-slate-900">{formatDisplayInvoiceNo(inv.invoice_no)}</span>
-                              <span className="text-sm font-bold text-emerald-600">₹{formatIndianAmount(inv.amount)}</span>
-                            </div>
-                            <div className="mb-2">
-                              {inv.sub_account ? (
-                                <>
-                                  <span className="font-bold text-slate-900 text-sm block">{inv.sub_account}</span>
-                                  <span className="text-xs text-slate-500 font-semibold">c/o {inv.main_account}</span>
-                                </>
-                              ) : (
-                                <span className="font-semibold text-slate-900 text-sm">{inv.main_account}</span>
-                              )}
-                            </div>
-                            <div className="flex justify-between items-center text-xs">
-                              <span className="text-slate-500 font-mono">{formatDisplayDate(inv.date)}</span>
-                              {inv.num_of_cases ? (
-                                <span className="font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-md border border-indigo-100">
-                                  {inv.num_of_cases} {inv.packing_type}
-                                </span>
-                              ) : (
-                                <span className="text-slate-300">—</span>
-                              )}
-                            </div>
-                            
-                            {/* ACTION BUTTONS (MOBILE) */}
-                            <div className="mt-4 flex gap-2 w-full">
-                               {inv.builty_image_url && (
-                                   <button 
-                                     onClick={(e) => { e.stopPropagation(); window.open(inv.builty_image_url, "_blank"); }}
-                                     className="flex-1 flex items-center justify-center gap-2 py-2 bg-indigo-50 text-indigo-700 rounded-lg text-xs font-bold border border-indigo-100 hover:bg-indigo-100 transition-colors"
-                                   >
-                                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"></path></svg>
-                                     View Builty
-                                   </button>
-                               )}
-                               <button 
-                                 onClick={(e) => shareOnWhatsApp(inv, e)}
-                                 className="flex-1 flex items-center justify-center gap-2 py-2 bg-[#25D366]/10 text-[#128C7E] rounded-lg text-xs font-bold border border-[#25D366]/20 hover:bg-[#25D366]/20 transition-colors"
-                               >
-                                 <svg viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51a12.8 12.8 0 00-.57-.01c-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z"/></svg>
+                      {isVerticalMode ? (
+                        <div className="flex flex-col divide-y divide-slate-100">
+                          {filteredRegisterInvoices.map((inv) => (
+                            <div key={inv.invoice_no} onClick={() => setSelectedInvoice(inv)} className="p-4 hover:bg-blue-50/50 transition-colors cursor-pointer flex flex-col">
+                              <div className="flex justify-between items-start mb-2">
+                                <span className="font-bold text-slate-900">{formatDisplayInvoiceNo(inv.invoice_no)}</span>
+                                <span className="text-sm font-bold text-emerald-600">₹{formatIndianAmount(inv.amount)}</span>
+                              </div>
+                              <div className="mb-2">
+                                {inv.sub_account ? (
+                                  <>
+                                    <span className="font-bold text-slate-900 text-sm block">{inv.sub_account}</span>
+                                    <span className="text-xs text-slate-500 font-semibold">c/o {inv.main_account}</span>
+                                  </>
+                                ) : (
+                                  <span className="font-semibold text-slate-900 text-sm">{inv.main_account}</span>
+                                )}
+                              </div>
+                              <div className="flex justify-between items-center text-xs">
+                                <span className="text-slate-500 font-mono">{formatDisplayDate(inv.date)}</span>
+                                {inv.num_of_cases ? (
+                                  <span className="font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-md border border-indigo-100">
+                                    {inv.num_of_cases} {inv.packing_type}
+                                  </span>
+                                ) : (
+                                  <span className="text-slate-300">—</span>
+                                )}
+                              </div>
+                              
+                              <div className="mt-4 flex gap-2 w-full">
+                                 {inv.builty_image_url && (
+                                     <button 
+                                       onClick={(e) => { e.stopPropagation(); window.open(inv.builty_image_url, "_blank"); }}
+                                       className="flex-1 flex items-center justify-center gap-2 py-2 bg-indigo-50 text-indigo-700 rounded-lg text-xs font-bold border border-indigo-100 hover:bg-indigo-100 transition-colors"
+                                     >
+                                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"></path></svg>
+                                       View Builty
+                                     </button>
+                                 )}
+                                 <button 
+                                   onClick={(e) => shareOnWhatsApp(inv, e)}
+                                   className="flex-1 flex items-center justify-center gap-2 py-2 bg-[#25D366]/10 text-[#128C7E] rounded-lg text-xs font-bold border border-[#25D366]/20 hover:bg-[#25D366]/20 transition-colors"
+                                 >
+                                   <svg viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51a12.8 12.8 0 00-.57-.01c-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z"/></svg>
                                  Share
                                </button>
                                {userRoleUpper === "ADMIN" && (inv.lr_number || inv.builty_image_url) && (
@@ -1283,9 +1372,8 @@ export default function Dashboard({
                           <div className="p-8 text-center text-slate-400 text-sm font-medium">No invoices found matching your criteria.</div>
                         )}
                       </div>
-
-                      {/* DESKTOP TABLE VIEW FOR INVOICE REGISTER */}
-                      <div className="hidden md:block overflow-x-auto">
+                    ) : (
+                      <div className="overflow-x-auto border border-slate-200 rounded-xl bg-white shadow-sm">
                         <table className="w-full text-left border-collapse min-w-[900px]">
                           <thead className="bg-slate-50 sticky top-0 z-10 shadow-sm border-b border-slate-200">
                             <tr className="text-slate-600 text-xs uppercase tracking-wider font-bold">
@@ -1333,8 +1421,6 @@ export default function Dashboard({
                                 <td className="p-4 text-sm font-bold text-emerald-600 text-right">
                                   ₹{formatIndianAmount(inv.amount)}
                                 </td>
-                                
-                                {/* ACTIONS COLUMN (DESKTOP) */}
                                 <td className="p-4 pr-6 text-center">
                                   <div className="flex items-center justify-center gap-1">
                                     <button
@@ -1377,9 +1463,9 @@ export default function Dashboard({
                           </tbody>
                         </table>
                       </div>
-                    </>
-                  )}
-                </div>
+                    )}
+                  </div>
+                )}
 
                 {/* Sticky Summary Footer */}
                 <div className="bg-slate-800 text-white p-4 md:p-5 sticky bottom-0 z-20 flex flex-col md:flex-row justify-between items-center shrink-0 border-t border-slate-700">
@@ -1524,7 +1610,30 @@ export default function Dashboard({
           </div>
         )}
 
-        {/* 2. BUILTY MANUAL LR EDIT & SAVE MODAL */}
+        {/* 2. CROP MODAL */}
+        {rawImageSrc && (
+          <div className="absolute inset-0 z-[60] flex items-center justify-center bg-slate-900/90 backdrop-blur-sm p-4 transition-all duration-300 animate-fade-in">
+            <div className="bg-slate-100 w-full max-w-3xl rounded-2xl shadow-2xl flex flex-col h-[90vh] md:h-[80vh] overflow-hidden">
+               <div className="p-4 border-b border-slate-200 flex justify-between items-center bg-white shrink-0">
+                  <h3 className="font-bold text-slate-800">Crop Image (Remove Background)</h3>
+                  <button onClick={() => { setRawImageSrc(null); window.history.back(); }} className="p-2 text-slate-400 hover:bg-slate-100 rounded-full transition-colors"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg></button>
+               </div>
+               
+               <div className="flex-1 overflow-auto flex items-center justify-center bg-slate-900 p-2">
+                  <ReactCrop crop={crop} onChange={c => setCrop(c)}>
+                     <img src={rawImageSrc} ref={imgRef} className="max-h-[65vh] w-auto object-contain shadow-2xl" alt="Crop me" />
+                  </ReactCrop>
+               </div>
+
+               <div className="p-4 border-t border-slate-200 bg-white shrink-0 flex gap-3">
+                  <button onClick={() => { setRawImageSrc(null); window.history.back(); }} className="flex-1 py-3.5 bg-slate-100 text-slate-700 font-bold rounded-xl hover:bg-slate-200 transition-colors">Cancel</button>
+                  <button onClick={applyCrop} className="flex-1 py-3.5 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 shadow-md transition-colors">Apply Crop</button>
+               </div>
+            </div>
+          </div>
+        )}
+
+        {/* 3. BUILTY MANUAL LR EDIT & SAVE MODAL */}
         {showBuiltyEdit && matchedInvoice && (
           <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 transition-all duration-300 animate-fade-in">
             <div className="bg-white w-full max-w-4xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
@@ -1581,7 +1690,7 @@ export default function Dashboard({
           </div>
         )}
 
-        {/* 3. SINGLE INVOICE DETAILS MODAL */}
+        {/* 4. SINGLE INVOICE DETAILS MODAL */}
         {selectedInvoice && (
           <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm md:p-6 transition-all duration-300 animate-fade-in" onClick={() => setSelectedInvoice(null)}>
             <div className="bg-white md:bg-white/95 md:backdrop-blur-xl w-full h-full md:h-auto md:max-w-3xl md:rounded-2xl shadow-2xl flex flex-col overflow-y-auto" onClick={(e) => e.stopPropagation()}>
