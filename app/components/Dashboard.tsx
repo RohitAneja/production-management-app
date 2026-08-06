@@ -39,6 +39,7 @@ export default function Dashboard({
   const [isMounted, setIsMounted] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isVerticalMode, setIsVerticalMode] = useState(false);
+  const [isMobileView, setIsMobileView] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [activeView, setActiveView] = useState("dashboard");
   const [expandedMenu, setExpandedMenu] = useState<string | null>(null);
@@ -121,13 +122,18 @@ export default function Dashboard({
     if (typeof window !== "undefined") {
       const checkOrientation = () => {
         setIsVerticalMode(window.innerHeight > window.innerWidth);
+        setIsMobileView(window.innerWidth < 1024); // Mobile layout for tablets
       };
       
-      checkOrientation(); // Initial check
-      window.addEventListener('resize', checkOrientation); // Live updates when tablet rotates
+      checkOrientation(); 
+      window.addEventListener('resize', checkOrientation); 
       
-      if (!window.history.state || !window.history.state.view) {
-        window.history.replaceState({ view: "dashboard" }, "");
+      try {
+        if (!window.history.state || !window.history.state.view) {
+          window.history.replaceState({ view: "dashboard" }, "");
+        }
+      } catch (e) {
+        console.warn("History API block:", e);
       }
 
       return () => window.removeEventListener('resize', checkOrientation);
@@ -137,7 +143,7 @@ export default function Dashboard({
   useEffect(() => {
     const handlePopState = (e: PopStateEvent) => {
       if (isSidebarOpen && isVerticalMode) setIsSidebarOpen(false);
-      else if (rawImageSrc) setRawImageSrc(null); // Close crop modal on back
+      else if (rawImageSrc) setRawImageSrc(null); 
       else if (isAddUserOpen) setIsAddUserOpen(false); 
       else if (isEditUserOpen) setIsEditUserOpen(false);
       else if (selectedInvoice) setSelectedInvoice(null);
@@ -154,11 +160,13 @@ export default function Dashboard({
 
   const handleNavigation = (id: string) => {
     if (id !== activeView) {
-      if (isVerticalMode && isSidebarOpen) {
-        window.history.replaceState({ view: id }, "");
-      } else {
-        window.history.pushState({ view: id }, "");
-      }
+      try {
+        if (isVerticalMode && isSidebarOpen) {
+          window.history.replaceState({ view: id }, "");
+        } else {
+          window.history.pushState({ view: id }, "");
+        }
+      } catch (e) {}
       setActiveView(id);
       setIsSidebarOpen(false); 
     } else {
@@ -173,11 +181,13 @@ export default function Dashboard({
 
   const goHome = () => {
     if (activeView !== "dashboard") {
-      if (isVerticalMode && isSidebarOpen) {
-        window.history.replaceState({ view: "dashboard" }, "");
-      } else {
-        window.history.pushState({ view: "dashboard" }, "");
-      }
+      try {
+        if (isVerticalMode && isSidebarOpen) {
+          window.history.replaceState({ view: "dashboard" }, "");
+        } else {
+          window.history.pushState({ view: "dashboard" }, "");
+        }
+      } catch(e) {}
       setActiveView("dashboard");
       setIsSidebarOpen(false);
     } else {
@@ -190,11 +200,11 @@ export default function Dashboard({
     }
   };
 
-  const openAddUserModal = () => { window.history.pushState({ modal: 'add' }, ""); setIsAddUserOpen(true); };
+  const openAddUserModal = () => { try { window.history.pushState({ modal: 'add' }, ""); } catch(e){} setIsAddUserOpen(true); };
   const openEditUserModal = (user: any) => {
     setEditUserForm({ id: user.id, username: user.username || "", email: user.email || "", mobile_number: user.mobile_number || "", role_id: user.role_id || "", user_status: user.user_status || "active" });
     setEditUserStatus({ type: "", text: "" });
-    window.history.pushState({ modal: 'edit' }, "");
+    try { window.history.pushState({ modal: 'edit' }, ""); } catch(e){}
     setIsEditUserOpen(true);
   };
 
@@ -298,9 +308,12 @@ export default function Dashboard({
     text += `*LR No:* ${inv.lr_number || 'Pending'}\n`;
     text += `*LR Date:* ${formatDisplayDate(inv.lr_date) || 'Pending'}\n`;
     
+    // Check for PDF link
     if (inv.invoice_pdf_url) {
       text += `\n*View PDF:* ${inv.invoice_pdf_url}`;
     }
+
+    // Check for Builty link
     if (inv.builty_image_url) {
       text += `\n*View Builty Photo:* ${inv.builty_image_url}`;
     }
@@ -341,7 +354,7 @@ export default function Dashboard({
       
       img.onload = () => {
         const canvas = document.createElement('canvas');
-        const MAX_WIDTH = 1200; // Shrinks massive 4K phone photos safely
+        const MAX_WIDTH = 1200; 
         const scaleSize = MAX_WIDTH / img.width;
         
         canvas.width = Math.min(img.width, MAX_WIDTH);
@@ -377,7 +390,7 @@ export default function Dashboard({
         const compressedBase64 = await compressImage(file);
         setRawImageSrc(compressedBase64);
         setBuiltyStatus({ type: "", text: "" });
-        window.history.pushState({ modal: 'crop' }, ""); // Back gesture support for crop modal
+        try { window.history.pushState({ modal: 'crop' }, ""); } catch(e){}
       } catch (err) {
         setBuiltyStatus({ type: "error", text: "Failed to load image. Try another." });
       }
@@ -390,7 +403,7 @@ export default function Dashboard({
   const applyCrop = () => {
     const image = imgRef.current;
     if (!image || !crop.width || !crop.height) {
-        setRawImageSrc(null); // Just close if they didn't crop
+        setRawImageSrc(null); 
         window.history.back();
         return;
     }
@@ -399,7 +412,6 @@ export default function Dashboard({
     const scaleX = image.naturalWidth / image.width;
     const scaleY = image.naturalHeight / image.height;
 
-    // FIX: Convert percentage to actual display pixels first
     const pixelCrop = crop.unit === '%' ? {
         x: (crop.x / 100) * image.width,
         y: (crop.y / 100) * image.height,
@@ -407,7 +419,6 @@ export default function Dashboard({
         height: (crop.height / 100) * image.height,
     } : crop;
 
-    // Use the newly converted pixel values
     canvas.width = pixelCrop.width * scaleX;
     canvas.height = pixelCrop.height * scaleY;
     
@@ -433,7 +444,7 @@ export default function Dashboard({
         setBuiltyPreviewUrl(URL.createObjectURL(blob));
         setBuiltyStatus({ type: "success", text: "Image Cropped & Ready! Select an invoice below to attach." });
         setRawImageSrc(null);
-        window.history.back(); // Pop the crop modal state
+        window.history.back(); 
       }, 'image/jpeg', 0.9);
     }
   };
@@ -480,21 +491,6 @@ export default function Dashboard({
        }).eq('invoice_no', matchedInvoice.invoice_no);
 
        if (dbErr) throw dbErr;
-
-       try {
-           if (typeof window.URL.createObjectURL === 'function' && builtyFile instanceof Blob) {
-               const localUrl = window.URL.createObjectURL(builtyFile);
-               const a = document.createElement("a");
-               a.href = localUrl;
-               a.download = fileName; 
-               document.body.appendChild(a);
-               a.click();
-               document.body.removeChild(a);
-               setTimeout(() => { window.URL.revokeObjectURL(localUrl); }, 1000);
-           }
-       } catch (downloadErr) {
-           console.warn("Local download skipped:", downloadErr);
-       }
 
        setBuiltyStatus({ type: "success", text: "Builty securely saved to cloud and linked!" });
        
@@ -564,7 +560,7 @@ export default function Dashboard({
   };
 
   // ==========================================
-  // UPLOAD INVOICES (PDF SCANNERS) WITH UPLOAD LOGIC
+  // UPLOAD INVOICES (PDF SCANNERS) WITH PDF UPLOAD LOGIC
   // ==========================================
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
@@ -590,7 +586,7 @@ export default function Dashboard({
         const data = await response.json();
         
         if (data.success) {
-          // Attaching original_file so we can upload it later
+          // Store the original file so we can upload it safely later
           results.push({ ...data.data, source_file: data.filename, original_file: file });
         } else {
           setUploadStatus({ type: "error", text: `File: ${file.name} - ${data.error}` });
@@ -598,7 +594,7 @@ export default function Dashboard({
           return;
         }
       } catch (err: any) {
-        setUploadStatus({ type: "error", text: `Server Crash: Could not reach API. Check Vercel Logs.` });
+        setUploadStatus({ type: "error", text: `Server Crash: Could not reach API. Check logs.` });
         setIsScanning(false);
         return;
       }
@@ -625,14 +621,12 @@ export default function Dashboard({
 
       const rowsToUpsert = [];
 
-      // Loop using a standard 'for' loop so we can use 'await' for the uploads
       for (const inv of scannedInvoices) {
-        // Extract out the temporary fields so they don't get sent to the database
+        // Strip out the temporary properties
         const { source_file, original_file, ...rest } = inv;
         
         const existing = existingInvoices?.find(e => e.invoice_no === rest.invoice_no);
 
-        // Preserve existing LR data if updating
         if (existing) {
            rest.lr_number = existing.lr_number;
            rest.lr_date = existing.lr_date;
@@ -640,29 +634,25 @@ export default function Dashboard({
            if (!rest.invoice_pdf_url) rest.invoice_pdf_url = existing.invoice_pdf_url;
         }
 
-        // --- PDF UPLOAD LOGIC ---
+        // --- NEW PDF UPLOAD BLOCK ---
         if (original_file) {
            const fileExt = original_file.name.split('.').pop() || 'pdf';
-           // Make a safe filename using the invoice number
            const safeInvNo = String(rest.invoice_no).replace(/[^a-zA-Z0-9]/g, '_');
            const fileName = `INV_${safeInvNo}_${Date.now()}.${fileExt}`;
 
-           // Upload to Supabase Storage
            const { error: storageErr } = await supabase.storage
              .from('invoices')
              .upload(fileName, original_file, { upsert: true });
 
            if (!storageErr) {
-               // Get the public URL
                const { data: publicUrlData } = supabase.storage.from('invoices').getPublicUrl(fileName);
                rest.invoice_pdf_url = publicUrlData.publicUrl;
            } else {
                console.error("Failed to upload PDF:", storageErr);
            }
         }
-        // -----------------------------
+        // ------------------------------
 
-        // Clean up null values
         Object.keys(rest).forEach(key => {
           if (rest[key] === null) {
             delete rest[key];
@@ -672,14 +662,13 @@ export default function Dashboard({
         rowsToUpsert.push(rest);
       }
 
-      // Upsert everything into the database
       const { error: upsertErr } = await supabase
          .from('invoices')
          .upsert(rowsToUpsert, { onConflict: 'invoice_no' });
 
       if (upsertErr) throw upsertErr;
 
-      setUploadStatus({ type: "success", text: "Invoices and PDFs securely saved!" });
+      setUploadStatus({ type: "success", text: "Invoices and PDFs securely saved/updated!" });
       setSelectedFiles([]);
       setScannedInvoices([]);
       setIsUploadPanelOpen(true);
@@ -1085,7 +1074,7 @@ export default function Dashboard({
                       </button>
                     </div>
 
-                    {isVerticalMode ? (
+                    {isMobileView ? (
                       <div className="flex flex-col gap-4">
                         {scannedInvoices.map((inv, idx) => (
                           <div key={idx} className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
@@ -1242,7 +1231,7 @@ export default function Dashboard({
                     </div>
                   ) : (
                     <>
-                      {isVerticalMode ? (
+                      {isMobileView ? (
                         <div className="flex flex-col divide-y divide-slate-100">
                           {filteredPendingInvoices.map((inv) => (
                             <div 
@@ -1375,7 +1364,7 @@ export default function Dashboard({
                     </div>
                   ) : (
                     <>
-                      {isVerticalMode ? (
+                      {isMobileView ? (
                         <div className="flex flex-col divide-y divide-slate-100">
                           {filteredRegisterInvoices.map((inv) => (
                             <div key={inv.invoice_no} onClick={() => setSelectedInvoice(inv)} className="p-4 hover:bg-blue-50/50 transition-colors cursor-pointer flex flex-col">
@@ -1505,7 +1494,7 @@ export default function Dashboard({
                                         <svg viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51a12.8 12.8 0 00-.57-.01c-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z"/></svg>
                                       </button>
                                       
-                                      {inv.invoice_pdf_url ? (
+                                      {inv.invoice_pdf_url && (
                                         <button
                                           onClick={(e) => { e.stopPropagation(); window.open(inv.invoice_pdf_url, "_blank"); }}
                                           className="text-red-600 hover:text-red-800 p-2 rounded-lg hover:bg-red-100 transition-colors"
@@ -1513,11 +1502,9 @@ export default function Dashboard({
                                         >
                                           <svg className="w-5 h-5 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg>
                                         </button>
-                                      ) : (
-                                        <div className="w-9 h-9" />
                                       )}
 
-                                      {inv.builty_image_url ? (
+                                      {inv.builty_image_url && (
                                         <button
                                           onClick={(e) => { e.stopPropagation(); window.open(inv.builty_image_url, "_blank"); }}
                                           className="text-indigo-600 hover:text-indigo-800 p-2 rounded-lg hover:bg-indigo-100 transition-colors"
@@ -1525,8 +1512,6 @@ export default function Dashboard({
                                         >
                                           <svg className="w-5 h-5 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"></path></svg>
                                         </button>
-                                      ) : (
-                                        <div className="w-9 h-9" />
                                       )}
 
                                       {userRoleUpper === "ADMIN" && (inv.lr_number || inv.builty_image_url) && (
