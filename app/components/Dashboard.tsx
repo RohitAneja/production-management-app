@@ -298,6 +298,9 @@ export default function Dashboard({
     text += `*LR No:* ${inv.lr_number || 'Pending'}\n`;
     text += `*LR Date:* ${formatDisplayDate(inv.lr_date) || 'Pending'}\n`;
     
+    if (inv.invoice_pdf_url) {
+      text += `\n*View PDF:* ${inv.invoice_pdf_url}`;
+    }
     if (inv.builty_image_url) {
       text += `\n*View Builty Photo:* ${inv.builty_image_url}`;
     }
@@ -561,7 +564,7 @@ export default function Dashboard({
   };
 
   // ==========================================
-  // UPLOAD INVOICES (PDF SCANNERS)
+  // UPLOAD INVOICES (PDF SCANNERS) WITH UPLOAD LOGIC
   // ==========================================
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
@@ -587,7 +590,8 @@ export default function Dashboard({
         const data = await response.json();
         
         if (data.success) {
-          results.push({ ...data.data, source_file: data.filename });
+          // Attaching original_file so we can upload it later
+          results.push({ ...data.data, source_file: data.filename, original_file: file });
         } else {
           setUploadStatus({ type: "error", text: `File: ${file.name} - ${data.error}` });
           setIsScanning(false);
@@ -608,42 +612,74 @@ export default function Dashboard({
 
   const saveInvoicesToDatabase = async () => {
     setIsScanning(true);
-    setUploadStatus({ type: "", text: "Checking database and saving..." });
+    setUploadStatus({ type: "", text: "Uploading PDFs and saving to database..." });
 
     try {
       const invoiceNos = scannedInvoices.map(inv => inv.invoice_no);
       const { data: existingInvoices, error: fetchErr } = await supabase
         .from('invoices')
-        .select('invoice_no, amount, lr_number, lr_date, num_of_cases')
+        .select('invoice_no, amount, lr_number, lr_date, num_of_cases, invoice_pdf_url')
         .in('invoice_no', invoiceNos);
 
       if (fetchErr) throw fetchErr;
 
-      const rowsToUpsert = scannedInvoices.map((inv) => {
-        const { source_file, ...rest } = inv;
+      const rowsToUpsert = [];
+
+      // Loop using a standard 'for' loop so we can use 'await' for the uploads
+      for (const inv of scannedInvoices) {
+        // Extract out the temporary fields so they don't get sent to the database
+        const { source_file, original_file, ...rest } = inv;
+        
         const existing = existingInvoices?.find(e => e.invoice_no === rest.invoice_no);
 
+        // Preserve existing LR data if updating
         if (existing) {
            rest.lr_number = existing.lr_number;
            rest.lr_date = existing.lr_date;
            if (!rest.num_of_cases) rest.num_of_cases = existing.num_of_cases;
+           if (!rest.invoice_pdf_url) rest.invoice_pdf_url = existing.invoice_pdf_url;
         }
 
+        // --- PDF UPLOAD LOGIC ---
+        if (original_file) {
+           const fileExt = original_file.name.split('.').pop() || 'pdf';
+           // Make a safe filename using the invoice number
+           const safeInvNo = String(rest.invoice_no).replace(/[^a-zA-Z0-9]/g, '_');
+           const fileName = `INV_${safeInvNo}_${Date.now()}.${fileExt}`;
+
+           // Upload to Supabase Storage
+           const { error: storageErr } = await supabase.storage
+             .from('invoices')
+             .upload(fileName, original_file, { upsert: true });
+
+           if (!storageErr) {
+               // Get the public URL
+               const { data: publicUrlData } = supabase.storage.from('invoices').getPublicUrl(fileName);
+               rest.invoice_pdf_url = publicUrlData.publicUrl;
+           } else {
+               console.error("Failed to upload PDF:", storageErr);
+           }
+        }
+        // -----------------------------
+
+        // Clean up null values
         Object.keys(rest).forEach(key => {
           if (rest[key] === null) {
             delete rest[key];
           }
         });
-        return rest;
-      });
+        
+        rowsToUpsert.push(rest);
+      }
 
+      // Upsert everything into the database
       const { error: upsertErr } = await supabase
          .from('invoices')
          .upsert(rowsToUpsert, { onConflict: 'invoice_no' });
 
       if (upsertErr) throw upsertErr;
 
-      setUploadStatus({ type: "success", text: "Invoices securely saved/updated in the database!" });
+      setUploadStatus({ type: "success", text: "Invoices and PDFs securely saved!" });
       setSelectedFiles([]);
       setScannedInvoices([]);
       setIsUploadPanelOpen(true);
@@ -863,6 +899,20 @@ export default function Dashboard({
       }
     } catch (err) { setIsSaving(false); setSaveStatus({ type: "error", text: "An unexpected error occurred." }); }
   };
+
+  // =========================================================
+  // RENDER SAFETY BLOCK (Prevents White Screen Crash)
+  // =========================================================
+  if (!isMounted) {
+    return (
+      <div className="h-screen w-full flex items-center justify-center bg-slate-50 text-slate-500">
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-10 h-10 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin"></div>
+          <p className="font-medium animate-pulse">Loading Dashboard...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="h-screen w-full flex overflow-hidden font-sans bg-slate-50 text-slate-900">
@@ -1355,6 +1405,15 @@ export default function Dashboard({
                               </div>
                               
                               <div className="mt-4 flex gap-2 w-full">
+                                 {inv.invoice_pdf_url && (
+                                     <button 
+                                       onClick={(e) => { e.stopPropagation(); window.open(inv.invoice_pdf_url, "_blank"); }}
+                                       className="flex-1 flex items-center justify-center gap-2 py-2 bg-red-50 text-red-700 rounded-lg text-xs font-bold border border-red-100 hover:bg-red-100 transition-colors"
+                                     >
+                                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg>
+                                       View PDF
+                                     </button>
+                                 )}
                                  {inv.builty_image_url && (
                                      <button 
                                        onClick={(e) => { e.stopPropagation(); window.open(inv.builty_image_url, "_blank"); }}
@@ -1446,6 +1505,18 @@ export default function Dashboard({
                                         <svg viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51a12.8 12.8 0 00-.57-.01c-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z"/></svg>
                                       </button>
                                       
+                                      {inv.invoice_pdf_url ? (
+                                        <button
+                                          onClick={(e) => { e.stopPropagation(); window.open(inv.invoice_pdf_url, "_blank"); }}
+                                          className="text-red-600 hover:text-red-800 p-2 rounded-lg hover:bg-red-100 transition-colors"
+                                          title="View Invoice PDF"
+                                        >
+                                          <svg className="w-5 h-5 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg>
+                                        </button>
+                                      ) : (
+                                        <div className="w-9 h-9" />
+                                      )}
+
                                       {inv.builty_image_url ? (
                                         <button
                                           onClick={(e) => { e.stopPropagation(); window.open(inv.builty_image_url, "_blank"); }}
@@ -1737,8 +1808,8 @@ export default function Dashboard({
                     )}
                   </div>
                   
-                  {/* MODAL ACTIONS: WhatsApp, View Builty, Delete Builty */}
-                  <div className="flex items-center gap-3 w-full md:w-auto">
+                  {/* MODAL ACTIONS: WhatsApp, View Builty, View PDF, Delete Builty */}
+                  <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
                     <button 
                        onClick={(e) => shareOnWhatsApp(selectedInvoice, e)}
                        className="flex-1 md:flex-none flex items-center justify-center gap-2 px-4 py-2 bg-[#25D366]/10 text-[#128C7E] font-bold border border-[#25D366]/20 rounded-xl hover:bg-[#25D366]/20 transition-colors text-sm"
@@ -1746,6 +1817,15 @@ export default function Dashboard({
                        <svg viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51a12.8 12.8 0 00-.57-.01c-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z"/></svg>
                        Share
                     </button>
+                    {selectedInvoice.invoice_pdf_url && (
+                      <button 
+                         onClick={() => window.open(selectedInvoice.invoice_pdf_url, "_blank")}
+                         className="flex-1 md:flex-none flex items-center justify-center gap-2 px-4 py-2 bg-red-50 text-red-700 font-bold border border-red-200 rounded-xl hover:bg-red-100 transition-colors text-sm"
+                      >
+                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg>
+                         View PDF
+                      </button>
+                    )}
                     {selectedInvoice.builty_image_url && (
                       <button 
                          onClick={() => window.open(selectedInvoice.builty_image_url, "_blank")}
