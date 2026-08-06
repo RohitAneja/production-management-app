@@ -345,7 +345,7 @@ export default function Dashboard({
   }, {} as Record<string, number>);
 
   // ==========================================
-  // IMAGE COMPRESSION HELPER (PREVENTS RAM CRASH)
+  // IMAGE COMPRESSION HELPER
   // ==========================================
   const compressImage = (file: File): Promise<string> => {
     return new Promise((resolve, reject) => {
@@ -492,6 +492,21 @@ export default function Dashboard({
 
        if (dbErr) throw dbErr;
 
+       try {
+           if (typeof window.URL.createObjectURL === 'function' && builtyFile instanceof Blob) {
+               const localUrl = window.URL.createObjectURL(builtyFile);
+               const a = document.createElement("a");
+               a.href = localUrl;
+               a.download = fileName; 
+               document.body.appendChild(a);
+               a.click();
+               document.body.removeChild(a);
+               setTimeout(() => { window.URL.revokeObjectURL(localUrl); }, 1000);
+           }
+       } catch (downloadErr) {
+           console.warn("Local download skipped:", downloadErr);
+       }
+
        setBuiltyStatus({ type: "success", text: "Builty securely saved to cloud and linked!" });
        
        setTimeout(() => {
@@ -631,14 +646,19 @@ export default function Dashboard({
            rest.lr_number = existing.lr_number;
            rest.lr_date = existing.lr_date;
            if (!rest.num_of_cases) rest.num_of_cases = existing.num_of_cases;
-           if (!rest.invoice_pdf_url) rest.invoice_pdf_url = existing.invoice_pdf_url;
+           
+           // Keep the old PDF link if we aren't uploading a new one
+           if (!original_file && existing.invoice_pdf_url) {
+               rest.invoice_pdf_url = existing.invoice_pdf_url;
+           }
         }
 
         // --- NEW PDF UPLOAD BLOCK ---
         if (original_file) {
            const fileExt = original_file.name.split('.').pop() || 'pdf';
+           // Strict filename naming to ensure overwrite for the same invoice_no
            const safeInvNo = String(rest.invoice_no).replace(/[^a-zA-Z0-9]/g, '_');
-           const fileName = `INV_${safeInvNo}_${Date.now()}.${fileExt}`;
+           const fileName = `INV_${safeInvNo}.${fileExt}`;
 
            const { error: storageErr } = await supabase.storage
              .from('invoices')
@@ -646,7 +666,8 @@ export default function Dashboard({
 
            if (!storageErr) {
                const { data: publicUrlData } = supabase.storage.from('invoices').getPublicUrl(fileName);
-               rest.invoice_pdf_url = publicUrlData.publicUrl;
+               // Add a timestamp parameter so the browser doesn't cache the old overwritten PDF
+               rest.invoice_pdf_url = `${publicUrlData.publicUrl}?t=${Date.now()}`;
            } else {
                console.error("Failed to upload PDF:", storageErr);
            }
