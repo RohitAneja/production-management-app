@@ -98,12 +98,13 @@ export async function POST(req: Request) {
                 if (rawPacking.includes('bora') || rawPacking.includes('bag')) {
                     packingType = "Bora";
                 }
-                else if (rawPacking.includes('SMALL')) {
+                else if (rawPacking.includes('small')) {
                     packingType = "Small Carton";
-                } 
-                else if (rawPacking.includes('CARTON')) {
-                    packingType = "Carton";
                 }
+                else {
+                // If it says "c/r", "carton", or anything else standard
+                   packingType = "Carton";
+          }
                 // If it says something completely unexpected, it safely falls back to "Carton"
             }
         }
