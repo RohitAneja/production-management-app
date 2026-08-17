@@ -128,11 +128,9 @@ export async function POST(req: Request) {
 
     // 8. EXTRACT TOTAL QTY
     let totalQtyVal = null;
-    // Tries to look strictly for "Total [Qty] [Amount]"
     // STRATEGY: Forcing EXACTLY 3 decimal places (\d{3}) guarantees we ignore 
     // tax amounts like 1022.75 and exclusively grab the Quantity (e.g., 82.000).
     const qtyMatch = noCommaText.match(/\bTotal\s+(\d+\.\d{3})\s+\d+\.\d{2}/i);
-
     if (qtyMatch) {
         totalQtyVal = parseFloat(qtyMatch[1]);
     } else {
