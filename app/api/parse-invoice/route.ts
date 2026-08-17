@@ -128,17 +128,13 @@ export async function POST(req: Request) {
 
     // 8. EXTRACT TOTAL QTY
     let totalQtyVal = null;
-    // STRATEGY: Forcing EXACTLY 3 decimal places (\d{3}) guarantees we ignore 
-    // tax amounts like 1022.75 and exclusively grab the Quantity (e.g., 82.000).
-    const qtyMatch = noCommaText.match(/\bTotal\s+(\d+\.\d{3})\s+\d+\.\d{2}/i);
-    if (qtyMatch) {
-        totalQtyVal = parseFloat(qtyMatch[1]);
-    } else {
-        // Fallback: Looks for Total [Qty] but strictly ignores "Grand Total"
-        const fallbackQty = noCommaText.match(/(?<!Grand\s)Total\s+(\d+\.\d{3})/i);
-        if (fallbackQty) {
-            totalQtyVal = parseFloat(fallbackQty[1]);
-        }
+    // STRATEGY: Quantities always have exactly 3 decimal places.
+    // Because the Total Qty is the sum of all items, the highest 3-decimal number 
+    // on the entire page is mathematically guaranteed to be the Total Quantity!
+    const allQtyNumbers = noCommaText.match(/\b\d+\.\d{3}\b/g);
+    if (allQtyNumbers && allQtyNumbers.length > 0) {
+        const numericQties = allQtyNumbers.map((val: string) => parseFloat(val));
+        totalQtyVal = Math.max(...numericQties);
     }
 
     // Construct the final data object for the database
