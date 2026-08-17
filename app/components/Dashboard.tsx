@@ -76,6 +76,7 @@ export default function Dashboard({
   const [isLoadingInvoices, setIsLoadingInvoices] = useState(false);
   const [invoiceSearchQuery, setInvoiceSearchQuery] = useState("");
   const [selectedInvoice, setSelectedInvoice] = useState<any | null>(null);
+  const [isDownloadingBulk, setIsDownloadingBulk] = useState(false); // Bulk Download State
 
   // Upload Builty States
   const [pendingInvoices, setPendingInvoices] = useState<any[]>([]);
@@ -90,7 +91,6 @@ export default function Dashboard({
   const [builtyStatus, setBuiltyStatus] = useState({ type: "", text: "" });
   
   const [matchedInvoice, setMatchedInvoice] = useState<any | null>(null);
-  const [showBuiltyConfirm, setShowBuiltyConfirm] = useState(false);
   const [showBuiltyEdit, setShowBuiltyEdit] = useState(false);
   const [builtyForm, setBuiltyForm] = useState({ lr_number: "", lr_date: "" });
   const [isSavingBuilty, setIsSavingBuilty] = useState(false);
@@ -337,7 +337,63 @@ export default function Dashboard({
   }, {} as Record<string, number>);
 
   // ==========================================
-  // IMAGE COMPRESSION HELPER
+  // BULK BUILTY DOWNLOADER MODULE
+  // ==========================================
+  const downloadAllBuilties = async () => {
+    // Check if the browser supports the File System Access API
+    if (!('showDirectoryPicker' in window)) {
+      alert("Your browser doesn't support folder selection. Please use Chrome or Edge on Desktop.");
+      return;
+    }
+    
+    setIsDownloadingBulk(true);
+    try {
+      // 1. Let the user select a folder on their computer
+      const dirHandle = await (window as any).showDirectoryPicker();
+      
+      // 2. Fetch all invoices that have a builty image
+      const { data, error } = await supabase
+        .from('invoices')
+        .select('invoice_no, builty_image_url')
+        .not('builty_image_url', 'is', null);
+
+      if (error) throw error;
+      if (!data || data.length === 0) {
+        alert("No builties found in the database.");
+        setIsDownloadingBulk(false);
+        return;
+      }
+
+      let downloadedCount = 0;
+
+      // 3. Loop through and save each one directly into the folder
+      for (const inv of data) {
+        try {
+          const response = await fetch(inv.builty_image_url);
+          const blob = await response.blob();
+          
+          const safeInvNo = String(formatDisplayInvoiceNo(inv.invoice_no)).replace(/[^a-zA-Z0-9]/g, '_');
+          const fileHandle = await dirHandle.getFileHandle(`Builty_${safeInvNo}.jpg`, { create: true });
+          const writable = await fileHandle.createWritable();
+          await writable.write(blob);
+          await writable.close();
+          downloadedCount++;
+        } catch (err) {
+          console.warn(`Skipped ${inv.invoice_no}:`, err);
+        }
+      }
+      alert(`Successfully downloaded ${downloadedCount} builty photos to your folder!`);
+    } catch (error: any) {
+      if (error.name !== 'AbortError') {
+        console.error("Bulk download failed:", error);
+        alert("An error occurred during the download.");
+      }
+    }
+    setIsDownloadingBulk(false);
+  };
+
+  // ==========================================
+  // IMAGE COMPRESSION HELPER (PREVENTS RAM CRASH)
   // ==========================================
   const compressImage = (file: File): Promise<string> => {
     return new Promise((resolve, reject) => {
@@ -483,21 +539,6 @@ export default function Dashboard({
        }).eq('invoice_no', matchedInvoice.invoice_no);
 
        if (dbErr) throw dbErr;
-
-       try {
-           if (typeof window.URL.createObjectURL === 'function' && builtyFile instanceof Blob) {
-               const localUrl = window.URL.createObjectURL(builtyFile);
-               const a = document.createElement("a");
-               a.href = localUrl;
-               a.download = fileName; 
-               document.body.appendChild(a);
-               a.click();
-               document.body.removeChild(a);
-               setTimeout(() => { window.URL.revokeObjectURL(localUrl); }, 1000);
-           }
-       } catch (downloadErr) {
-           console.warn("Local download skipped:", downloadErr);
-       }
 
        setBuiltyStatus({ type: "success", text: "Builty securely saved to cloud and linked!" });
        
@@ -1103,7 +1144,7 @@ export default function Dashboard({
                            <>
                               <input type="file" accept="image/*" capture="environment" className="hidden" ref={cameraInputRef} onChange={handleBuiltyUploadChange} />
                               <input type="file" accept="image/*" className="hidden" ref={galleryInputRef} onChange={handleBuiltyUploadChange} />
-                              <button onClick={() => cameraInputRef.current?.click()} className="flex-1 md:flex-none justify-center bg-blue-600 text-white px-3 md:px-4 h-11 rounded-xl text-sm font-bold shadow-md hover:bg-blue-700 transition-colors flex items-center gap-2">
+                              <button onClick={() => cameraInputRef.current?.click()} className="flex-1 lg:flex-none justify-center bg-blue-600 text-white px-3 lg:px-4 h-11 rounded-xl text-sm font-bold shadow-md hover:bg-blue-700 transition-colors flex items-center gap-2">
                                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"></path><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
                                 <span>Camera</span>
                               </button>
@@ -1246,15 +1287,32 @@ export default function Dashboard({
                     <h2 className="text-xl md:text-2xl font-bold text-slate-900">Invoice Register</h2>
                     <p className="text-sm text-slate-500 hidden md:block">Comprehensive view of all processed invoices.</p>
                   </div>
-                  <div className="relative w-full md:w-80">
-                    <svg className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
-                    <input 
-                      type="text" 
-                      placeholder="Search by Date, Account, or Inv No..." 
-                      value={invoiceSearchQuery} 
-                      onChange={(e) => setInvoiceSearchQuery(e.target.value)} 
-                      className="w-full pl-9 pr-4 h-11 shrink-0 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium transition-all" 
-                    />
+                  <div className="flex flex-col md:flex-row items-stretch md:items-center gap-3 w-full md:w-auto">
+                    {/* NEW BULK DOWNLOAD BUTTON */}
+                    <button 
+                      onClick={downloadAllBuilties} 
+                      disabled={isDownloadingBulk}
+                      className="bg-indigo-600 text-white px-4 h-11 rounded-xl text-sm font-bold shadow-md hover:bg-indigo-700 transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+                      title="Download all builties to a local folder (Chrome/Edge Only)"
+                    >
+                      {isDownloadingBulk ? (
+                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                      ) : (
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                      )}
+                      <span className="hidden md:block">{isDownloadingBulk ? "Downloading..." : "Download All Builties"}</span>
+                    </button>
+
+                    <div className="relative w-full md:w-80">
+                      <svg className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                      <input 
+                        type="text" 
+                        placeholder="Search by Date, Account, or Inv No..." 
+                        value={invoiceSearchQuery} 
+                        onChange={(e) => setInvoiceSearchQuery(e.target.value)} 
+                        className="w-full pl-9 pr-4 h-11 shrink-0 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium transition-all" 
+                      />
+                    </div>
                   </div>
                 </div>
                 
