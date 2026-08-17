@@ -629,7 +629,8 @@ export default function Dashboard({
       const invoiceNos = scannedInvoices.map(inv => inv.invoice_no);
       const { data: existingInvoices, error: fetchErr } = await supabase
         .from('invoices')
-        .select('invoice_no, amount, lr_number, lr_date, num_of_cases, invoice_pdf_url')
+        // UPDATED: Now safely includes totalqty and gst to prevent erasure
+        .select('invoice_no, amount, lr_number, lr_date, num_of_cases, invoice_pdf_url, totalqty, gst')
         .in('invoice_no', invoiceNos);
 
       if (fetchErr) throw fetchErr;
@@ -651,9 +652,13 @@ export default function Dashboard({
            if (!original_file && existing.invoice_pdf_url) {
                rest.invoice_pdf_url = existing.invoice_pdf_url;
            }
+
+           // PRESERVE QTY & GST if new scan misses it but it exists in DB
+           if (!rest.totalqty && existing.totalqty) rest.totalqty = existing.totalqty;
+           if (!rest.gst && existing.gst) rest.gst = existing.gst;
         }
 
-        // --- NEW PDF UPLOAD BLOCK ---
+        // --- PDF UPLOAD BLOCK ---
         if (original_file) {
            const fileExt = original_file.name.split('.').pop() || 'pdf';
            // Strict filename naming to ensure overwrite for the same invoice_no
@@ -1115,13 +1120,17 @@ export default function Dashboard({
                             </div>
                             <div className="flex justify-between items-center text-xs mb-3">
                               <span className="text-slate-500 font-mono">{formatDisplayDate(inv.date)}</span>
-                              {inv.num_of_cases ? (
-                                <span className="font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-md border border-indigo-100">
-                                  {inv.num_of_cases} {inv.packing_type}
-                                </span>
-                              ) : (
-                                <span className="text-slate-300">—</span>
-                              )}
+                              <div className="flex items-center gap-2">
+                                {inv.totalqty && <span className="font-bold text-slate-600 bg-slate-100 px-2 py-0.5 rounded-md border border-slate-200">Qty: {inv.totalqty}</span>}
+                                {inv.gst && <span className="font-bold text-rose-600 bg-rose-50 px-2 py-0.5 rounded-md border border-rose-100">GST: ₹{formatIndianAmount(inv.gst)}</span>}
+                                {inv.num_of_cases ? (
+                                  <span className="font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-md border border-indigo-100">
+                                    {inv.num_of_cases} {inv.packing_type}
+                                  </span>
+                                ) : (
+                                  <span className="text-slate-300">—</span>
+                                )}
+                              </div>
                             </div>
                             <div className="flex justify-between items-center text-xs text-slate-400 border-t border-slate-50 pt-2">
                               <span className="truncate max-w-[150px]">{inv.source_file}</span>
@@ -1132,16 +1141,18 @@ export default function Dashboard({
                       </div>
                     ) : (
                       <div className="overflow-x-auto border border-slate-200 rounded-xl bg-white shadow-sm">
-                        <table className="w-full text-left border-collapse min-w-[1100px]">
+                        <table className="w-full text-left border-collapse min-w-[1200px]">
                           <thead className="bg-slate-100 border-b border-slate-200">
                             <tr className="text-slate-600 text-xs uppercase tracking-wider font-bold">
                               <th className="p-4 pl-6 w-[15%]">File Name</th>
                               <th className="p-4 w-[10%]">Inv No</th>
                               <th className="p-4 w-[10%]">Date</th>
-                              <th className="p-4 w-[25%]">Account</th>
+                              <th className="p-4 w-[20%]">Account</th>
                               <th className="p-4 w-[10%]">Cases</th>
+                              <th className="p-4 w-[10%]">Qty</th>
+                              <th className="p-4 w-[10%]">GST</th>
                               <th className="p-4 w-[10%]">Amount</th>
-                              <th className="p-4 w-[20%]">Transport</th>
+                              <th className="p-4 w-[15%]">Transport</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-100 bg-white">
@@ -1170,6 +1181,8 @@ export default function Dashboard({
                                     <span className="text-slate-300">—</span>
                                   )}
                                 </td>
+                                <td className="p-4 text-sm font-bold text-slate-700">{inv.totalqty || "—"}</td>
+                                <td className="p-4 text-sm font-bold text-rose-600">₹{formatIndianAmount(inv.gst)}</td>
                                 <td className="p-4 text-sm font-bold text-emerald-600">₹{formatIndianAmount(inv.amount)}</td>
                                 <td className="p-4 text-sm text-slate-600">{inv.transport}</td>
                               </tr>
@@ -1405,13 +1418,16 @@ export default function Dashboard({
                               </div>
                               <div className="flex justify-between items-center text-xs">
                                 <span className="text-slate-500 font-mono">{formatDisplayDate(inv.date)}</span>
-                                {inv.num_of_cases ? (
-                                  <span className="font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-md border border-indigo-100">
-                                    {inv.num_of_cases} {inv.packing_type}
-                                  </span>
-                                ) : (
-                                  <span className="text-slate-300">—</span>
-                                )}
+                                <div className="flex gap-2">
+                                  {inv.totalqty && <span className="font-bold text-slate-600 bg-slate-100 px-2 py-0.5 rounded-md border border-slate-200">Qty: {inv.totalqty}</span>}
+                                  {inv.num_of_cases ? (
+                                    <span className="font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-md border border-indigo-100">
+                                      {inv.num_of_cases} {inv.packing_type}
+                                    </span>
+                                  ) : (
+                                    <span className="text-slate-300">—</span>
+                                  )}
+                                </div>
                               </div>
                               
                               <div className="mt-4 flex gap-2 w-full">
@@ -1458,15 +1474,17 @@ export default function Dashboard({
                         </div>
                       ) : (
                         <div className="overflow-x-auto border border-slate-200 rounded-xl bg-white shadow-sm">
-                          <table className="w-full text-left border-collapse min-w-[900px]">
+                          <table className="w-full text-left border-collapse min-w-[1100px]">
                             <thead className="bg-slate-50 sticky top-0 z-10 shadow-sm border-b border-slate-200">
                               <tr className="text-slate-600 text-xs uppercase tracking-wider font-bold">
-                                <th className="p-4 pl-6 w-[15%]">Inv No</th>
-                                <th className="p-4 w-[15%]">Date</th>
-                                <th className="p-4 w-[35%]">Account</th>
+                                <th className="p-4 pl-6 w-[10%]">Inv No</th>
+                                <th className="p-4 w-[10%]">Date</th>
+                                <th className="p-4 w-[25%]">Account</th>
                                 <th className="p-4 w-[10%]">Cases</th>
-                                <th className="p-4 w-[15%] text-right">Amount</th>
-                                <th className="p-4 w-[10%] text-center pr-6">Actions</th>
+                                <th className="p-4 w-[10%]">Qty</th>
+                                <th className="p-4 w-[10%]">GST</th>
+                                <th className="p-4 w-[10%] text-right">Amount</th>
+                                <th className="p-4 w-[15%] text-center pr-6">Actions</th>
                               </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100 bg-white">
@@ -1501,6 +1519,12 @@ export default function Dashboard({
                                     ) : (
                                       <span className="text-slate-300">—</span>
                                     )}
+                                  </td>
+                                  <td className="p-4 text-sm font-bold text-slate-700">
+                                    {inv.totalqty || "—"}
+                                  </td>
+                                  <td className="p-4 text-sm font-bold text-rose-600">
+                                    ₹{formatIndianAmount(inv.gst)}
                                   </td>
                                   <td className="p-4 text-sm font-bold text-emerald-600 text-right">
                                     ₹{formatIndianAmount(inv.amount)}
@@ -1550,7 +1574,7 @@ export default function Dashboard({
                                 </tr>
                               ))}
                               {filteredRegisterInvoices.length === 0 && (
-                                <tr><td colSpan={6} className="p-12 text-center text-slate-400 font-medium">No invoices found matching your criteria.</td></tr>
+                                <tr><td colSpan={8} className="p-12 text-center text-slate-400 font-medium">No invoices found matching your criteria.</td></tr>
                               )}
                             </tbody>
                           </table>
@@ -1861,6 +1885,14 @@ export default function Dashboard({
                   <div>
                     <span className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Total Amount</span>
                     <span className="text-base font-black text-emerald-600">₹{formatIndianAmount(selectedInvoice.amount)}</span>
+                  </div>
+                  <div>
+                    <span className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Total Qty</span>
+                    <span className="text-base font-bold text-slate-800">{selectedInvoice.totalqty || "—"}</span>
+                  </div>
+                  <div>
+                    <span className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Total GST</span>
+                    <span className="text-base font-bold text-rose-600">₹{formatIndianAmount(selectedInvoice.gst)}</span>
                   </div>
                   <div>
                     <span className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Packing/Cases</span>

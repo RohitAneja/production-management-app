@@ -92,7 +92,6 @@ export async function POST(req: Request) {
             numOfCases = parseInt(slashMatch[1], 10);
             
             if (slashMatch[2]) {
-                // THE FIX: Translate messy PDF text into Strict Database Text
                 const rawPacking = slashMatch[2].replace(/['"]/g, '').trim().toLowerCase();
                 
                 if (rawPacking.includes('bora') || rawPacking.includes('bag')) {
@@ -102,22 +101,43 @@ export async function POST(req: Request) {
                     packingType = "Small Carton";
                 }
                 else {
-                // If it says "c/r", "carton", or anything else standard
-                   packingType = "Carton";
-          }
-                // If it says something completely unexpected, it safely falls back to "Carton"
+                    packingType = "Carton";
+                }
             }
         }
     }
 
+    // Prepare text without commas for safe number extraction
+    const noCommaText = rawText.replace(/,/g, ''); 
+
     // 6. EXTRACT GRAND TOTAL 
     let amountVal = 0;
-    const noCommaText = rawText.replace(/,/g, ''); 
     const allAmounts = noCommaText.match(/\d+\.\d{2}/g); 
     
     if (allAmounts && allAmounts.length > 0) {
         const numericAmounts = allAmounts.map((val: string) => parseFloat(val));
         amountVal = Math.max(...numericAmounts);
+    }
+
+    // 7. EXTRACT TOTAL GST
+    let gstVal = null;
+    const gstMatch = noCommaText.match(/Total GST\s*[:\-]?\s*(\d+\.\d+)/i);
+    if (gstMatch) {
+        gstVal = parseFloat(gstMatch[1]);
+    }
+
+    // 8. EXTRACT TOTAL QTY
+    let totalQtyVal = null;
+    // Tries to look strictly for "Total [Qty] [Amount]"
+    const qtyMatch = noCommaText.match(/\bTotal\s+(\d+\.\d{1,3})\s+\d+\.\d{2}/i);
+    if (qtyMatch) {
+        totalQtyVal = parseFloat(qtyMatch[1]);
+    } else {
+        // Fallback: Looks for Total [Qty] but strictly ignores "Grand Total"
+        const fallbackQty = noCommaText.match(/(?<!Grand\s)Total\s+(\d+\.\d{1,3})/i);
+        if (fallbackQty) {
+            totalQtyVal = parseFloat(fallbackQty[1]);
+        }
     }
 
     // Construct the final data object for the database
@@ -131,7 +151,9 @@ export async function POST(req: Request) {
       amount: amountVal,
       transport: transport,
       lr_number: null,
-      lr_date: null
+      lr_date: null,
+      totalqty: totalQtyVal, // Added
+      gst: gstVal            // Added
     };
 
     return NextResponse.json({ success: true, data: invoiceData, filename: file.name });
