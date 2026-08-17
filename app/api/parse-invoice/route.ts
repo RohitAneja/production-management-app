@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { createClient } from '@supabase/supabase-js'; // Added Supabase client
 
 // --- 1. VERCEL SERVER POLYFILLS ---
 if (typeof global.DOMMatrix === 'undefined') {
@@ -126,15 +127,65 @@ export async function POST(req: Request) {
         gstVal = parseFloat(gstMatch[1]);
     }
 
-    // 8. EXTRACT TOTAL QTY
+    // 8. EXTRACT TOTAL QTY (WITH ALLOWED HSN FILTERING)
     let totalQtyVal = null;
-    // STRATEGY: Quantities always have exactly 3 decimal places.
-    // Because the Total Qty is the sum of all items, the highest 3-decimal number 
-    // on the entire page is mathematically guaranteed to be the Total Quantity!
-    const allQtyNumbers = noCommaText.match(/\b\d+\.\d{3}\b/g);
-    if (allQtyNumbers && allQtyNumbers.length > 0) {
-        const numericQties = allQtyNumbers.map((val: string) => parseFloat(val));
-        totalQtyVal = Math.max(...numericQties);
+
+    try {
+        // Initialize Supabase to fetch your Allowed HSN codes
+        const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+        const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+        const supabase = createClient(supabaseUrl, supabaseKey);
+
+        const { data: hsnData, error: hsnErr } = await supabase.from('allowedhsn').select('hsncode');
+        
+        if (hsnErr) throw hsnErr;
+
+        const allowedHsnCodes = hsnData?.map(row => row.hsncode.trim()) || [];
+        let calculatedTotalQty = 0;
+
+        if (allowedHsnCodes.length > 0) {
+            // Split the raw text line-by-line
+            const lines = rawText.split('\n');
+            
+            for (let line of lines) {
+                const cleanLine = line.replace(/,/g, ''); 
+
+                // Check if any allowed HSN code exists on this specific line
+                const hasAllowedHsn = allowedHsnCodes.some(hsn => {
+                    const regex = new RegExp(`\\b${hsn}\\b`, 'i');
+                    return regex.test(cleanLine);
+                });
+
+                if (hasAllowedHsn) {
+                    // Extract the 3-decimal quantity from THIS line only
+                    const qtyMatch = cleanLine.match(/\b(\d+\.\d{3})\b/);
+                    if (qtyMatch) {
+                        calculatedTotalQty += parseFloat(qtyMatch[1]);
+                    }
+                }
+            }
+
+            // Ensure we don't return 0 if no matching items were found (return null instead to show "—")
+            if (calculatedTotalQty > 0) {
+                // Round to 3 decimal places to fix standard JavaScript floating-point math errors
+                totalQtyVal = parseFloat(calculatedTotalQty.toFixed(3));
+            }
+        } else {
+            // FALLBACK: If your allowedhsn table is empty, use the highest 3-decimal number strategy
+            const allQtyNumbers = noCommaText.match(/\b\d+\.\d{3}\b/g);
+            if (allQtyNumbers && allQtyNumbers.length > 0) {
+                const numericQties = allQtyNumbers.map((val: string) => parseFloat(val));
+                totalQtyVal = Math.max(...numericQties);
+            }
+        }
+    } catch (dbError) {
+        console.warn("Failed to fetch allowed HSNs, falling back to Math.max strategy", dbError);
+        // FALLBACK: If Supabase connection fails, safely fallback to the Math.max strategy
+        const allQtyNumbers = noCommaText.match(/\b\d+\.\d{3}\b/g);
+        if (allQtyNumbers && allQtyNumbers.length > 0) {
+            const numericQties = allQtyNumbers.map((val: string) => parseFloat(val));
+            totalQtyVal = Math.max(...numericQties);
+        }
     }
 
     // Construct the final data object for the database
@@ -149,8 +200,8 @@ export async function POST(req: Request) {
       transport: transport,
       lr_number: null,
       lr_date: null,
-      totalqty: totalQtyVal, // Added
-      gst: gstVal            // Added
+      totalqty: totalQtyVal, 
+      gst: gstVal            
     };
 
     return NextResponse.json({ success: true, data: invoiceData, filename: file.name });
